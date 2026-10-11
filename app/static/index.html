@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nlm2drive · NotebookLM → Google Drive Archiver</title>
+  <meta name="description" content="Archive NotebookLM notebooks to Google Drive as browsable folders, verify every file in the cloud, then free up your 500-notebook limit automatically.">
+  <meta name="theme-color" content="#0a0c16">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%238b5cf6'/><stop offset='1' stop-color='%2322d3ee'/></linearGradient></defs><rect width='64' height='64' rx='16' fill='url(%23g)'/><path d='M18 20h18l10 10v14a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4V24a4 4 0 0 1 4-4z' fill='white' opacity='.92'/><path d='M32 30v12m-5-5 5 5 5-5' stroke='%237c3aed' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 4h8l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M12 10v6m-3-3 3 3 3-3"/></svg>
+      </div>
+      <div>
+        <h1>nlm2drive</h1>
+        <p class="tagline">NotebookLM → Google Drive archiver</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="run-pill" class="pill pill-idle"><i></i><span id="run-pill-text">Idle</span></span>
+      <button id="btn-settings" class="btn btn-ghost" title="Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ============ Connections ============ -->
+    <section class="cards" aria-label="Connections and capacity">
+      <article class="card glass conn" id="card-nlm">
+        <div class="card-head">
+          <span class="icon-badge violet"><svg viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-1.5z"/><path d="M8 7h6M8 11h6"/></svg></span>
+          <div>
+            <h2>NotebookLM</h2>
+            <p class="muted" id="nlm-sub">Checking session…</p>
+          </div>
+          <span class="dot" id="nlm-dot"></span>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-sm" id="btn-nlm-check">Re-check</button>
+          <label class="btn btn-sm btn-ghost file-btn" id="lbl-cookie-import">Import cookies
+            <input type="file" id="input-cookie-import" accept=".json,application/json" hidden>
+          </label>
+        </div>
+        <p class="hint" id="nlm-hint">Log in once with <code>./nlm2drive.sh login</code> (opens Chrome).</p>
+      </article>
+
+      <article class="card glass conn" id="card-drive">
+        <div class="card-head">
+          <span class="icon-badge teal"><svg viewBox="0 0 24 24"><path d="M8 3h8l6 10-4 7H6l-4-7z"/><path d="M8 3l6 10H2M16 3l-6 10 4 7"/></svg></span>
+          <div>
+            <h2>Google Drive</h2>
+            <p class="muted" id="drive-sub">Checking…</p>
+          </div>
+          <span class="dot" id="drive-dot"></span>
+        </div>
+        <div class="card-actions">
+          <label class="btn btn-sm btn-ghost file-btn" id="lbl-cred-upload">credentials.json
+            <input type="file" id="input-cred-upload" accept=".json,application/json" hidden>
+          </label>
+          <button class="btn btn-sm btn-primary" id="btn-drive-connect">Connect</button>
+          <button class="btn btn-sm btn-ghost hidden" id="btn-drive-disconnect">Disconnect</button>
+        </div>
+        <p class="hint"><a href="#" id="link-drive-guide">How to create credentials.json (5 min)</a></p>
+      </article>
+
+      <article class="card glass capacity" id="card-capacity">
+        <div class="ring-wrap">
+          <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+            <defs>
+              <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#22d3ee"/>
+              </linearGradient>
+            </defs>
+            <circle class="ring-bg" cx="60" cy="60" r="50"/>
+            <circle class="ring-fg" id="ring-fg" cx="60" cy="60" r="50"/>
+          </svg>
+          <div class="ring-label"><strong id="cap-count">–</strong><span id="cap-limit">/ 500</span></div>
+        </div>
+        <div class="cap-info">
+          <h2>Notebook limit</h2>
+          <p class="muted" id="cap-sub">Refresh the list to count</p>
+          <div class="mini-stats">
+            <div><b id="cap-2024">0</b><span>2024</span></div>
+            <div><b id="cap-2025">0</b><span>2025</span></div>
+            <div><b id="cap-freed">0</b><span>freed</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card glass target" id="card-target">
+        <div class="card-head">
+          <span class="icon-badge pink"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          <div>
+            <h2>Archive target</h2>
+            <p class="muted mono" id="target-path">G:\My Drive\NotebookLM\Archive</p>
+          </div>
+        </div>
+        <p class="hint">Year folders → one browsable folder per notebook (sources, notes, studio media, chat, README, manifest).</p>
+        <div class="card-actions">
+          <a class="btn btn-sm btn-ghost hidden" id="link-drive-folder" target="_blank" rel="noopener">Open in Drive ↗</a>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============ Run panel ============ -->
+    <section class="glass run-panel" id="run-panel" aria-label="Run control and progress">
+      <div class="run-top">
+        <div class="run-title">
+          <h2>Archive run</h2>
+          <p class="muted" id="run-sub">Select notebooks below, then start. Each notebook: export → upload → verify in Drive → delete.</p>
+        </div>
+        <div class="run-controls">
+          <button class="btn" id="btn-refresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg><span>Refresh list</span></button>
+          <button class="btn" id="btn-dry-run"><svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span>Dry run</span></button>
+          <button class="btn btn-primary btn-glow" id="btn-start"><svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg><span id="btn-start-text">Start archiving</span></button>
+          <button class="btn hidden" id="btn-pause"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg><span>Pause</span></button>
+          <button class="btn hidden" id="btn-resume"><svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg><span>Resume</span></button>
+          <button class="btn btn-danger hidden" id="btn-stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span>Stop</span></button>
+        </div>
+      </div>
+
+      <div class="run-options">
+        <label class="switch" for="opt-delete"><input type="checkbox" id="opt-delete"><span class="track"><span class="thumb"></span></span><span>Delete from NotebookLM after Drive verification</span></label>
+        <label class="switch" for="opt-media"><input type="checkbox" id="opt-media"><span class="track"><span class="thumb"></span></span><span>Include audio &amp; video</span></label>
+        <label class="field-inline" for="opt-limit">Limit <input type="number" id="opt-limit" min="1" placeholder="all"></label>
+        <span class="sel-count" id="sel-count">0 selected</span>
+        <button class="btn btn-sm btn-ghost" id="btn-e2e" title="Creates a throwaway notebook, archives, verifies and deletes it">Run self-test</button>
+      </div>
+
+      <div class="confirm-banner hidden" id="confirm-banner">
+        <div>
+          <strong>Automatic deletion is armed but not confirmed.</strong>
+          <p>Notebooks are deleted only after every file is verified in Drive (MD5). Type <code id="confirm-phrase">DELETE AFTER BACKUP</code> to allow deletion.</p>
+        </div>
+        <div class="confirm-input">
+          <input type="text" id="input-confirm" placeholder="Type the phrase" autocomplete="off" spellcheck="false">
+          <button class="btn btn-danger" id="btn-confirm">Confirm</button>
+        </div>
+      </div>
+
+      <div class="progress-block">
+        <div class="progress-meta">
+          <span id="prog-label">Ready</span>
+          <span id="prog-pct" class="mono">0%</span>
+        </div>
+        <div class="progress"><div class="progress-fill" id="prog-fill"></div></div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat"><span class="stat-k">Processed</span><b class="stat-v" id="st-done">0 / 0</b></div>
+        <div class="stat ok"><span class="stat-k">Archived</span><b class="stat-v" id="st-archived">0</b></div>
+        <div class="stat del"><span class="stat-k">Deleted</span><b class="stat-v" id="st-deleted">0</b></div>
+        <div class="stat warn"><span class="stat-k">Kept</span><b class="stat-v" id="st-kept">0</b></div>
+        <div class="stat bad"><span class="stat-k">Failed</span><b class="stat-v" id="st-failed">0</b></div>
+        <div class="stat"><span class="stat-k">Uploaded</span><b class="stat-v" id="st-bytes">0 B</b></div>
+        <div class="stat"><span class="stat-k">ETA</span><b class="stat-v" id="st-eta">–</b></div>
+      </div>
+
+      <div class="current hidden" id="current">
+        <div class="current-head">
+          <span class="spinner" aria-hidden="true"></span>
+          <strong id="cur-title">–</strong>
+        </div>
+        <ol class="stepper" id="stepper">
+          <li data-step="EXPORTING">Export</li>
+          <li data-step="UPLOADING">Upload</li>
+          <li data-step="CLOUD_VERIFIED">Verify</li>
+          <li data-step="DELETED">Delete</li>
+        </ol>
+        <p class="cur-detail mono" id="cur-detail"></p>
+        <div class="progress thin"><div class="progress-fill" id="cur-fill"></div></div>
+      </div>
+      <p class="run-message hidden" id="run-message"></p>
+    </section>
+
+    <!-- ============ Notebooks ============ -->
+    <section class="glass table-panel" id="notebooks-panel" aria-label="Notebooks">
+      <div class="table-toolbar">
+        <h2>Notebooks <span class="count-badge" id="nb-count">0</span></h2>
+        <div class="chips" id="year-chips" role="group" aria-label="Year filter">
+          <button class="chip active" data-year="all" id="chip-year-all">All years</button>
+          <button class="chip" data-year="2024" id="chip-year-2024">2024</button>
+          <button class="chip" data-year="2025" id="chip-year-2025">2025</button>
+          <button class="chip" data-year="other" id="chip-year-other">Other</button>
+        </div>
+        <div class="chips" id="status-chips" role="group" aria-label="Status filter">
+          <button class="chip active" data-status="all" id="chip-st-all">Any status</button>
+          <button class="chip" data-status="pending" id="chip-st-pending">Pending</button>
+          <button class="chip" data-status="active" id="chip-st-active">In progress</button>
+          <button class="chip" data-status="archived" id="chip-st-archived">Archived</button>
+          <button class="chip" data-status="deleted" id="chip-st-deleted">Deleted</button>
+          <button class="chip" data-status="failed" id="chip-st-failed">Failed</button>
+          <button class="chip" data-status="shared" id="chip-st-shared">Shared</button>
+        </div>
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="search" id="input-search" placeholder="Search titles…">
+        </div>
+      </div>
+      <div class="bulk-bar">
+        <button class="btn btn-sm btn-ghost" id="btn-sel-years">Select all 2024 + 2025</button>
+        <button class="btn btn-sm btn-ghost" id="btn-sel-visible">Select visible</button>
+        <button class="btn btn-sm btn-ghost" id="btn-unsel-visible">Clear visible</button>
+      </div>
+      <div class="table-wrap">
+        <table class="nb-table" id="nb-table">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="chk-all" aria-label="Select all visible"></th>
+              <th data-sort="title" id="th-title">Notebook</th>
+              <th data-sort="created_at" id="th-created" class="sorted desc">Created</th>
+              <th data-sort="sources_count" id="th-sources" class="num">Sources</th>
+              <th data-sort="stage" id="th-stage">Status</th>
+              <th data-sort="bytes" id="th-size" class="num">Size</th>
+              <th class="col-actions"></th>
+            </tr>
+          </thead>
+          <tbody id="nb-body"></tbody>
+        </table>
+        <div class="empty hidden" id="nb-empty">
+          <div class="empty-art" aria-hidden="true"></div>
+          <p>No notebooks yet. Connect NotebookLM and press <b>Refresh list</b>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Activity / History ============ -->
+    <section class="split">
+      <article class="glass log-panel" aria-label="Activity log">
+        <div class="panel-head">
+          <h2>Live activity</h2>
+          <label class="switch small" for="opt-autoscroll"><input type="checkbox" id="opt-autoscroll" checked><span class="track"><span class="thumb"></span></span><span>Auto-scroll</span></label>
+        </div>
+        <ul class="log" id="log"></ul>
+      </article>
+      <article class="glass history-panel" aria-label="Run history">
+        <div class="panel-head"><h2>Run history</h2></div>
+        <ul class="history" id="history"></ul>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Shared notebooks are never touched · Only read/download/delete endpoints are used (no AI quota) · UI bound to localhost</span>
+  </footer>
+
+  <!-- ============ Settings modal ============ -->
+  <dialog class="modal glass" id="modal-settings">
+    <form method="dialog" class="modal-body" id="form-settings">
+      <h2>Settings</h2>
+      <label class="field">Drive archive folder <small>(inside My Drive)</small>
+        <input type="text" id="set-path" placeholder="NotebookLM/Archive">
+      </label>
+      <label class="field">Default years
+        <input type="text" id="set-years" placeholder="2024, 2025">
+      </label>
+      <div class="field-row">
+        <label class="field">Parallel uploads <input type="number" id="set-conc" min="1" max="8"></label>
+        <label class="field">Pause between notebooks (s) <input type="number" id="set-delay" min="0" step="0.5"></label>
+      </div>
+      <label class="switch" for="set-chat"><input type="checkbox" id="set-chat"><span class="track"><span class="thumb"></span></span><span>Export chat history</span></label>
+      <label class="switch" for="set-keep"><input type="checkbox" id="set-keep"><span class="track"><span class="thumb"></span></span><span>Keep local staging copy (./data/staging)</span></label>
+      <div class="danger-zone" id="danger-zone">
+        <span id="delete-state-text">Deletion: not confirmed</span>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-revoke">Revoke confirmation</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-settings-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-settings-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Drive guide modal ============ -->
+  <dialog class="modal glass wide" id="modal-guide">
+    <div class="modal-body">
+      <h2>Create your Google Drive OAuth client</h2>
+      <ol class="guide">
+        <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> → create a project (e.g. <i>nlm2drive</i>).</li>
+        <li>Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Drive API</a>.</li>
+        <li><a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a>: if you use a Google Workspace account, choose <b>Make internal</b> (best: no verification, no expiry). Otherwise press <b>Publish app → In production</b>. Leaving it in <i>Testing</i> causes “Access blocked: … has not completed the Google verification process” (Error 403) unless you are a listed test user, and tokens expire after 7 days.</li>
+        <li><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Clients</a> → <b>Create client</b> → type <b>Desktop app</b> → <b>Download JSON</b>.</li>
+        <li>Upload that file with the <b>credentials.json</b> button, then press <b>Connect</b>. On the “Google hasn't verified this app” screen choose <b>Advanced → Go to nlm2drive</b> (it is your own app).</li>
+      </ol>
+      <div class="modal-actions"><button class="btn btn-primary" id="btn-guide-close">Got it</button></div>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

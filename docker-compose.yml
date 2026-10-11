@@ -1,0 +1,22 @@
+name: nlm2drive
+
+services:
+  nlm2drive:
+    build: .
+    image: nlm2drive:latest
+    container_name: nlm2drive
+    restart: unless-stopped
+    ports:
+      # Bound to localhost only — the UI can delete your notebooks.
+      - "127.0.0.1:${UI_PORT:-8765}:8765"
+    environment:
+      - TZ=${TZ:-America/Toronto}
+      - PUBLIC_URL=http://localhost:${UI_PORT:-8765}
+      - OAUTHLIB_INSECURE_TRANSPORT=1
+      - OAUTHLIB_RELAX_TOKEN_SCOPE=1
+    volumes:
+      # state.sqlite, NotebookLM session, Google token, staging, logs.
+      # NOTE: the archive is uploaded with the Google Drive API (it appears in
+      # G:\My Drive\<drive_archive_path> via Drive for Desktop). Do NOT bind-mount G: —
+      # Docker Desktop cannot see the Google Drive virtual drive.
+      - ./data:/data

@@ -1,0 +1,22 @@
+# --- secrets & runtime state (NEVER commit) ---
+data/
+.env
+credentials.json
+client_secret*.json
+token.json
+storage_state.json
+browser_profile/
+*.sqlite
+*.sqlite-*
+
+# --- python ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# --- editors / OS ---
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

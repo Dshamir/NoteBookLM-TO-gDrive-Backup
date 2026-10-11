@@ -1,0 +1,7 @@
+data
+.env
+.git
+**/__pycache__
+.pytest_cache
+*.md
+!app/**/*.md
