@@ -1,3 +1,30 @@
+<p align="center">
+  <img src="docs/assets/banner.png" alt="NoteBookLM → gDrive Backup: Archive · Verify · Free up space" width="100%">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Uvicorn-499848?logo=gunicorn&logoColor=white" alt="Uvicorn">
+  <img src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white" alt="SQLite">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/Google%20Drive-API%20v3-4285F4?logo=googledrive&logoColor=white" alt="Google Drive API v3">
+  <img src="https://img.shields.io/badge/OAuth%202.0-Google-EB5424?logo=auth0&logoColor=white" alt="OAuth 2.0">
+  <img src="https://img.shields.io/badge/notebooklm--py-0.8.4-8b5cf6" alt="notebooklm-py 0.8.4">
+  <img src="https://img.shields.io/badge/Playwright-Chrome-2EAD33?logo=playwright&logoColor=white" alt="Playwright">
+  <br>
+  <img src="https://img.shields.io/badge/JavaScript-vanilla-F7DF1E?logo=javascript&logoColor=black" alt="Vanilla JavaScript">
+  <img src="https://img.shields.io/badge/HTML5-E34F26?logo=html5&logoColor=white" alt="HTML5">
+  <img src="https://img.shields.io/badge/CSS3-glassmorphism-1572B6?logo=css3&logoColor=white" alt="CSS3">
+  <img src="https://img.shields.io/badge/Bash-orchestrator-4EAA25?logo=gnubash&logoColor=white" alt="Bash">
+  <img src="https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white" alt="PowerShell">
+  <img src="https://img.shields.io/badge/uv-astral-DE5FE9?logo=astral&logoColor=white" alt="uv">
+  <img src="https://img.shields.io/badge/pytest-27%20passing-0A9EDC?logo=pytest&logoColor=white" alt="pytest 27 passing">
+  <img src="https://img.shields.io/badge/platform-Windows%2011-0078D4?logo=windows11&logoColor=white" alt="Windows 11">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
+  <img src="https://img.shields.io/badge/version-1.0.0-blueviolet" alt="version 1.0.0">
+</p>
+
 # NoteBookLM-TO-gDrive Backup (`nlm2drive`)
 
 Back up NotebookLM notebooks to **Google Drive as browsable folders**. Every file is **verified in the cloud (MD5)**. Only then is the notebook **deleted from NotebookLM**, which frees space under the 500-notebook limit.
@@ -26,8 +53,6 @@ My Drive/NotebookLM/Archive/            (= G:\My Drive\NotebookLM\Archive with D
 │       └── chat/history.md + history.json
 └── 2025/…
 ```
-
-![flow](https://img.shields.io/badge/flow-export%20→%20upload%20→%20verify%20→%20delete-8b5cf6)
 
 ## Requirements
 - Windows 10/11 with **Docker Desktop**.
