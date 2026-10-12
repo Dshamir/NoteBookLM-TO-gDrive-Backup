@@ -20,3 +20,6 @@ __pycache__/
 .idea/
 Thumbs.db
 .DS_Store
+
+# local scratch / throwaway tooling (never commit)
+scratch/

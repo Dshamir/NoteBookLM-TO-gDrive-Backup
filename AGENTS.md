@@ -16,6 +16,8 @@ Read this first when resuming work on this project.
 5. **UI binds to `127.0.0.1` only.**
 6. **Do not reintroduce a `G:` bind mount** for archiving (ADR-002: Docker Desktop can't see the Drive virtual drive, so verification would be false).
 7. Pin `notebooklm-py` (`requirements.txt` + `NOTEBOOKLM_PY_VERSION`). It uses undocumented Google RPCs.
+8. **An expired Google session is a run-level pause, never a notebook failure** (ADR-010). Keep `nlm.is_auth_error` / `SessionExpired` / `Runner._recover_session` intact; never retry or mark FAILED on auth errors; exporter `except` blocks must call `_reraise_if_auth`.
+9. **One NotebookLM client per cookie file.** While a run is active, API endpoints must not open another client (`_run_auth_view`; `/api/refresh` returns 409).
 
 ## How to work on it
 ```powershell
@@ -36,8 +38,9 @@ Read this first when resuming work on this project.
 - `notebooklm login` is unreliable (ADR-007). Use `scripts/nlm_login.py`.
 - NotebookLM is also served at `notebook.google.com`; cookies exist for both hosts.
 
-## Current state (2026-10-11)
-- v1.0.0 working end to end.
+## Current state (2026-10-12)
+- v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
+  - 2026-10-12: first big run archived+deleted 74 notebooks, then Google revoked the NotebookLM session (~2 h in). Fixed in 1.0.1 (ADR-010). Recovery = `.\nlm2drive login`; the paused run continues by itself.
   - Login: Chrome, Workspace account, 498 notebooks.
   - Drive connected (Audience = Internal).
   - Archive-only trial: 1 notebook, 11 files, 15.5 MB, verified in about 30 s.
