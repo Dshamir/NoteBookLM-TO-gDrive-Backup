@@ -98,4 +98,15 @@ if ($code -eq 0 -and (Test-Session)) {
   Write-Host "Signed in - NotebookLM session saved. You can close the browser window." -ForegroundColor Green
   exit 0
 }
+if ($code -eq 0 -and -not $Fresh.IsPresent) {
+  # Stale cookies from an expired session can satisfy the 'signed in' check but fail the real one.
+  # (Not retried when the user simply closed the window: that exits non-zero.)
+  Write-Host ""
+  Write-Host "Session check failed - retrying once with a clean browser profile (you will sign in again) ..." -ForegroundColor Yellow
+  $code = Invoke-Login $true
+  if ($code -eq 0 -and (Test-Session)) {
+    Write-Host "Signed in - NotebookLM session saved. You can close the browser window." -ForegroundColor Green
+    exit 0
+  }
+}
 throw "NotebookLM sign-in did not produce a valid session. Run '.\nlm2drive login --fresh' and complete the Google sign-in in the browser window."

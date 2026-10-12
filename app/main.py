@@ -7,6 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import nlm_service as nlm
+from . import reconnect
 from .config import DB_PATH, SettingsStore, ensure_dirs
 from .gdrive import DriveClient
 from .runner import EventBus, Runner
@@ -30,6 +32,7 @@ bus = EventBus()
 runner = Runner(db, settings, drive, bus)
 
 _cache: dict[str, tuple[float, Any]] = {}
+_reconnect_seen: dict[str, Any] = {"finished_at": None}
 
 
 def _cached(key: str, ttl: float):
@@ -349,6 +352,57 @@ async def auth_import(file: UploadFile = File(...)):
     _cache.pop("auth", None)
     runner.nudge()  # the run (if waiting for a sign-in) picks the new cookies up immediately
     return await _auth_status(True)
+
+
+class ReconnectBody(BaseModel):
+    fresh: bool = False
+
+
+def _same_machine_origin(request: Request) -> None:
+    """State-changing reconnect calls open a browser window on this PC: refuse cross-site requests (CSRF /
+    DNS rebinding). Non-browser clients (curl, the CLI) send no Origin and are allowed."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return
+    if (urlparse(origin).hostname or "") not in ("localhost", "127.0.0.1"):
+        raise HTTPException(403, "Cross-site request refused")
+
+
+@app.get("/api/reconnect/status")
+async def reconnect_status():
+    snap = await reconnect.status()
+    done = snap.get("finished_at")
+    if snap.get("state") == "success" and done and done != _reconnect_seen["finished_at"]:
+        _reconnect_seen["finished_at"] = done  # act once per successful sign-in
+        _cache.pop("auth", None)
+        runner.nudge()  # a paused run picks the new session up right away
+        db.add_event("ok", "NotebookLM sign-in completed through the Reconnect button")
+    return snap
+
+
+@app.post("/api/reconnect")
+async def reconnect_start(request: Request, body: ReconnectBody | None = None):
+    _same_machine_origin(request)
+    if runner.running and not runner.snapshot().get("needs_auth"):
+        # The run owns a working session; re-signing in now would rewrite the cookie file under its feet.
+        raise HTTPException(409, "The running archive is using a working NotebookLM session - reconnect is only "
+                                 "needed (and offered) when it reports “Sign-in needed”.")
+    try:
+        snap = await reconnect.start(bool(body and body.fresh))
+    except reconnect.HelperUnavailable as e:
+        raise HTTPException(503, f"{e} {reconnect.HINT}") from e
+    if not snap.get("already_running"):
+        db.add_event("info", "Reconnect NotebookLM requested - sign-in browser opened on the host")
+    return snap
+
+
+@app.post("/api/reconnect/cancel")
+async def reconnect_cancel(request: Request):
+    _same_machine_origin(request)
+    try:
+        return await reconnect.cancel()
+    except reconnect.HelperUnavailable as e:
+        raise HTTPException(503, str(e)) from e
 
 
 # ----------------------------------------------------------------------------- Google Drive OAuth

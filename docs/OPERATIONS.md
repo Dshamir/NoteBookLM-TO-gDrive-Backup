@@ -23,12 +23,26 @@ Headless alternative: `.\nlm2drive run [--dry-run] [--no-delete] [--limit N]`.
 - [ ] Full run.
 
 ## NotebookLM session expired
-Symptoms: the NotebookLM card turns red, runs auto-pause after 5 failures, or errors mention auth/401/`SID`.
+Symptoms: red **Sign-in needed** pill + banner, the run is paused (no notebook is marked failed), or the NotebookLM card is red.
+
+**One click:** press **Reconnect NotebookLM** and sign in to Google in the Chrome window that opens. The run continues by itself with the same notebook.
+
+**From the shell** (always works, no helper needed):
 ```powershell
-.\nlm2drive login          # reuses the saved browser profile; usually finishes in seconds
+.\nlm2drive login          # reuses the saved browser profile; if the saved cookies are dead it retries once with a clean profile
 .\nlm2drive login --fresh  # switch Google account / profile is broken
 ```
-`login` calls `/api/auth/reload` automatically when the stack is up. Then press **Resume** (or start a new run).
+`login` calls `/api/auth/reload` automatically when the stack is up, and a run waiting for a sign-in continues on its own.
+
+### Reconnect helper (powers the button)
+```powershell
+.\nlm2drive helper status      # running / not running
+.\nlm2drive helper start       # (`up` already does this)
+.\nlm2drive helper install     # start it at every Windows logon (Scheduled Task, current user, no admin)
+.\nlm2drive helper uninstall   # remove that task
+.\nlm2drive helper stop        # (`down` already does this)
+```
+It listens on `127.0.0.1:8766` only, requires a per-start token (`data\helper.json`), and can do exactly one thing: run `scripts\login.ps1`. Logs: `data\logs\helper.log`, `helper.err.log`. Port busy? Edit `-Port` in `scripts/helper.ps1` calls (default 8766).
 
 ## Drive token problems
 - Drive card shows an error → **Disconnect** → **Connect**.

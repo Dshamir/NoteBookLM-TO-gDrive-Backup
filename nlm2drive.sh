@@ -123,14 +123,31 @@ cmd_login() {   # login [--browser chrome|msedge|chromium] [--fresh]
   say "Login stored in data/notebooklm."
 }
 
+helper_ps() {   # helper_ps ACTION  -> scripts/helper.ps1 (the host-side "Reconnect NotebookLM" listener)
+  local action="$1"; shift
+  run_powershell -File "$(winpath "$ROOT/scripts/helper.ps1")" -Action "$action" \
+    -DataDir "$(winpath "$ROOT/data/notebooklm")" -Version "${NOTEBOOKLM_PY_VERSION:-}" \
+    -Browser "${LOGIN_BROWSER:-auto}" "$@"
+}
+
+cmd_helper() {   # helper start|stop|status|install|uninstall
+  load_env; mkdir -p data/notebooklm
+  case "${1:-status}" in
+    start|stop|status|install|uninstall) helper_ps "$1" ;;
+    *) die "usage: helper start|stop|status|install|uninstall" ;;
+  esac
+}
+
 cmd_up() {
   load_env; ensure_engine
   mkdir -p data/notebooklm data/google data/staging data/logs
   dc up -d --build
   if wait_healthy; then say "UI ready → ${UI_URL}"; open_url "$UI_URL"; else warn "UI not healthy yet — check: ./nlm2drive.sh logs"; fi
+  # Optional convenience: lets the UI's "Reconnect NotebookLM" button open the Google sign-in on this PC.
+  helper_ps start || warn "Reconnect helper not started — the UI button needs it. Retry: ./nlm2drive.sh helper start (or sign in with ./nlm2drive.sh login)"
 }
 
-cmd_down()    { load_env; dc down; }
+cmd_down()    { load_env; helper_ps stop || true; dc down; }
 cmd_restart() { load_env; ensure_engine; dc restart; wait_healthy && say "Restarted → ${UI_URL}"; }
 cmd_logs()    { load_env; dc logs -f --tail=200; }
 cmd_open()    { load_env; open_url "$UI_URL"; }
@@ -194,6 +211,9 @@ nlm2drive.sh — NotebookLM → Google Drive archiver
   setup            create folders/.env, start Docker, build image
   login [--browser chrome|msedge|chromium] [--fresh]
                    sign in to NotebookLM (default browser = Chrome; --fresh switches account)
+  helper start|stop|status|install|uninstall
+                   host-side listener behind the UI's "Reconnect NotebookLM" button
+                   (up/down manage it; install = start it at every Windows logon)
   up | down        start / stop the stack (UI at http://localhost:\${UI_PORT:-8765})
   restart | logs   restart container / follow logs
   open             open the web UI
@@ -211,7 +231,7 @@ EOF
 main() {
   local cmd="${1:-help}"; shift || true
   case "$cmd" in
-    setup|login|up|down|restart|logs|open|status|run|refresh|e2e|test|lint|typecheck|smoke|check) "cmd_$cmd" "$@" ;;
+    setup|login|helper|up|down|restart|logs|open|status|run|refresh|e2e|test|lint|typecheck|smoke|check) "cmd_$cmd" "$@" ;;
     help|-h|--help) usage ;;
     *) usage; exit 1 ;;
   esac

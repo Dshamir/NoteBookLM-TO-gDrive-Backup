@@ -117,3 +117,18 @@ What went wrong in the app (the "stuck" UI):
 **Likely underlying cause (found after re-login).** The session that died had been saved without Google's rotation cookies `__Secure-1PSIDRTS` / `__Secure-3PSIDRTS`; the session saved on the next login (same browser profile, a few hours later) contained them. Google issues them a little *after* sign-in, and `scripts/nlm_login.py` saved the session the instant `SID` + `__Secure-1PSIDTS` existed. `nlm_login.py` now waits (up to 60 s) for the RTS cookies and warns if they never appear. Whether this fully prevents revocation is unproven: watch the next long run.
 
 **Not done (options).** A durable fix for the *cause* needs a longer-lived credential: `notebooklm login --master-token` (layer-4 re-mint from a stored master token; needs the `[headless]` extra and an account-equivalent secret in `data/`) or signing in with Firefox cookies. Both have security trade-offs, so they are left as a deliberate user decision.
+
+## ADR-011 · "Reconnect NotebookLM" button via a host-side helper (not OAuth) (2026-10-12)
+**Context.** After ADR-010 the run survives a revoked session, but re-signing in still meant leaving the browser and typing `.\nlm2drive login`. The natural ask: a button, "via OAuth". NotebookLM has **no OAuth and no public API**; the only credential is the Google *browser* session (cookies). OAuth exists only for Drive, and it already works (and does not expire: Audience = Internal). The sign-in needs a real, visible Chrome window on the Windows desktop, which a Docker container cannot open.
+
+**Decision.**
+- Add an optional, tiny host-side service, `scripts/reconnect_helper.py` (stdlib only, run through `uv` Python 3.12 like the login), started/stopped by `.\nlm2drive up|down` (or `helper start|stop`, and `helper install` for a Windows logon task). It does exactly one thing: run `scripts/login.ps1` on request.
+- The UI button calls the app (`POST /api/reconnect`), the app calls the helper at `host.docker.internal:8766` with a bearer token read from `/data/helper.json`. The browser never talks to the helper and never sees the token (no CORS surface at all).
+- Safety rails: loopback bind; token; reject any `Origin` header and any foreign `Host` header; single-flight; 15 min limit; success = exit 0 **and** a cookie file written after the start; the app refuses cross-site origins and refuses to start while a run holds a *working* session (it would rewrite the cookie file under the run).
+- After success the app clears its auth cache and nudges the runner, which probes immediately and carries on with the same notebook (ADR-010 does the rest). The cookie file is now written atomically so the run's poll can never read a half-written file.
+- `login.ps1` retries once with a clean browser profile when the saved cookies fail the live check: after an expiry the persistent profile still holds the revoked cookies, which satisfy the "signed in" test locally.
+- No helper = no regression: the button answers with `.\nlm2drive helper start` / `.\nlm2drive login`.
+
+**Alternatives rejected.** (1) Run Chrome inside the container with noVNC: heavy, and Google flags such sign-ins. (2) Let the browser call a localhost helper directly: needs CORS + CSRF/DNS-rebinding handling on a service that launches processes. (3) Passing the host's Chrome profile cookies into the container: more secret handling for no gain. (4) A true "no-touch" renewal (master token, `notebooklm auth refresh`): still a user decision, see ADR-010.
+
+**Consequences.** One click (plus the Google sign-in itself) recovers a paused run. The helper is another local process, bound to loopback and token-protected, with the same trust level as the user's own shell. It can only start the login script, nothing else.

@@ -47,12 +47,14 @@
           <span class="dot" id="nlm-dot"></span>
         </div>
         <div class="card-actions">
+          <button class="btn btn-sm btn-primary" id="btn-reconnect" title="Opens the Google sign-in in Chrome on this PC">Reconnect</button>
           <button class="btn btn-sm" id="btn-nlm-check">Re-check</button>
           <label class="btn btn-sm btn-ghost file-btn" id="lbl-cookie-import">Import cookies
             <input type="file" id="input-cookie-import" accept=".json,application/json" hidden>
           </label>
         </div>
-        <p class="hint" id="nlm-hint">Sign in with <code>.\nlm2drive login</code> in PowerShell (opens Chrome), then press Re-check.</p>
+        <p class="hint" id="nlm-hint">Press <b>Reconnect</b> (opens Chrome) to sign in, or run <code>.\nlm2drive login</code> in PowerShell.</p>
+        <p class="hint reconnect-status hidden" id="reconnect-status" role="status" aria-live="polite"></p>
       </article>
 
       <article class="card glass conn" id="card-drive">
@@ -185,12 +187,17 @@
         <div class="auth-banner-body">
           <strong>NotebookLM sign-in expired — the run is paused and nothing was lost</strong>
           <ol>
-            <li>In PowerShell run <code>.\nlm2drive login</code> and sign in to Google (Chrome opens).</li>
-            <li>This page notices the new session by itself and the run carries on with the same notebook.</li>
+            <li>Press <b>Reconnect NotebookLM</b> and sign in to Google in the Chrome window that opens.</li>
+            <li>That's all: this page notices the new session by itself and the run carries on with the same notebook.</li>
+            <li class="alt">Button not working? In PowerShell run <code>.\nlm2drive login</code> instead.</li>
           </ol>
           <p class="auth-banner-detail" id="auth-banner-detail"></p>
+          <p class="auth-banner-detail reconnect-status hidden" id="reconnect-banner-status" role="status" aria-live="polite"></p>
         </div>
-        <button class="btn btn-primary" id="btn-auth-recheck">Re-check now</button>
+        <div class="auth-banner-actions">
+          <button class="btn btn-primary" id="btn-reconnect-banner">Reconnect NotebookLM</button>
+          <button class="btn btn-ghost" id="btn-auth-recheck">Re-check now</button>
+        </div>
       </div>
       <p class="run-message hidden" id="run-message"></p>
     </section>

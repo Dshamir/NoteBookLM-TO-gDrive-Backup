@@ -107,6 +107,16 @@ From **PowerShell / cmd** use `.\nlm2drive <command>`. From Git Bash/WSL use `./
 
 ---
 
+## 🔄 If the NotebookLM session expires
+Google can revoke the NotebookLM browser session during a long run. **Nothing is lost**: the run pauses, the pill turns red (**Sign-in needed**), and no notebook is marked failed.
+
+1. Press **Reconnect NotebookLM** (red banner, or the *Reconnect* button on the NotebookLM card) and sign in to Google in the Chrome window that opens.
+2. That's it. The page notices the new session and the run continues with the same notebook.
+
+> NotebookLM has no OAuth / public API (only Drive does), so the renewal is a normal Google sign-in in Chrome. The button works through a small, loopback-only, token-protected helper that `.\nlm2drive up` starts on your PC ([ADR-011](docs/DECISIONS.md)). Without it, run `.\nlm2drive login` (or `.\nlm2drive helper start` once, or `.\nlm2drive helper install` to start it at every Windows logon).
+
+---
+
 ## 🔑 Google Drive OAuth client (one time)
 
 1. [Create a project](https://console.cloud.google.com/projectcreate) and enable the [Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com).
@@ -125,6 +135,7 @@ From **PowerShell / cmd** use `.\nlm2drive <command>`. From Git Bash/WSL use `./
 |---|---|
 | `setup` | Create `data/` folders, start Docker, build the image |
 | `login [--browser chrome\|msedge] [--fresh]` | NotebookLM sign-in. `--fresh` wipes the profile to switch accounts |
+| `helper start\|stop\|status\|install\|uninstall` | The host-side listener behind the UI's **Reconnect** button (`up`/`down` manage it; `install` = start at Windows logon) |
 | `up` / `down` / `restart` / `logs` / `open` / `status` | Manage the Docker stack |
 | `run [--dry-run] [--no-delete] [--limit N]` | Start a run headlessly; watch it in the UI |
 | `refresh` | Refresh the NotebookLM session cookies |

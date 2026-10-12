@@ -106,7 +106,9 @@ def main() -> int:
                   "within a few hours. Re-run login later or keep NotebookLM open in that window longer.",
                   file=sys.stderr, flush=True)
         storage.parent.mkdir(parents=True, exist_ok=True)
-        ctx.storage_state(path=str(storage))
+        tmp = storage.with_name(storage.name + ".tmp")
+        ctx.storage_state(path=str(tmp))
+        os.replace(tmp, storage)  # atomic: the paused run polls this file and must never see a partial write
         ctx.close()
     print(f"Session saved to {storage}")
     return 0

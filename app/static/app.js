@@ -131,6 +131,69 @@
     catch (e) { renderAuth({ ok: false, error: e.message }); }
   }
 
+  // ------------------------------------------------------------------ reconnect (a host helper opens Chrome)
+  const reconnect = { polling: false };
+  const RECONNECT_LABEL = { "#btn-reconnect": "Reconnect", "#btn-reconnect-banner": "Reconnect NotebookLM" };
+
+  function setReconnectUI(snap, error) {
+    const running = !!snap && snap.state === "running";
+    const failed = !!error || (!!snap && snap.state === "failed");
+    const last = running && snap.tail && snap.tail.length ? snap.tail[snap.tail.length - 1] : "";
+    const msg = error || (snap && snap.state !== "idle" && snap.state !== "unavailable" ? snap.message : "");
+    for (const sel of ["#reconnect-status", "#reconnect-banner-status"]) {
+      const el = $(sel);
+      el.textContent = msg ? (last ? `${msg} · ${last}` : msg) : "";
+      el.classList.toggle("hidden", !msg);
+      el.classList.toggle("err", failed);
+      el.classList.toggle("busy", running);
+    }
+    for (const [sel, label] of Object.entries(RECONNECT_LABEL)) {
+      const b = $(sel);
+      b.disabled = running;
+      b.textContent = running ? "Waiting for sign-in…" : label;
+      b.classList.toggle("loading", running);
+    }
+  }
+
+  async function pollReconnect() {
+    if (reconnect.polling) return;
+    reconnect.polling = true;
+    try {
+      for (let i = 0; i < 480; i++) {   // ~16 min; the helper enforces its own 15 min limit
+        const snap = await api("/api/reconnect/status");
+        setReconnectUI(snap);
+        if (snap.state !== "running") {
+          if (snap.state === "success") {
+            toast("Signed in to NotebookLM", "ok");
+            await checkAuth(true).catch(() => {});   // during a run this also nudges the paused run
+          } else if (snap.state === "failed") toast(snap.message, "error", 8000);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    } catch (e) { setReconnectUI(null, e.message); }
+    finally { reconnect.polling = false; }
+  }
+
+  async function startReconnect() {
+    try {
+      const snap = await api("/api/reconnect", { body: {} });
+      setReconnectUI(snap);
+      toast(snap.already_running ? "A sign-in is already open — finish it in the browser window" : "Browser opened — sign in to Google there", "info", 6000);
+      pollReconnect();
+    } catch (e) {
+      setReconnectUI(null, e.message);
+      toast(e.message, "error", 9000);
+    }
+  }
+
+  async function resumeReconnectIfRunning() {   // page reloaded in the middle of a sign-in
+    try {
+      const snap = await api("/api/reconnect/status");
+      if (snap.state === "running") { setReconnectUI(snap); pollReconnect(); }
+    } catch { /* helper status is optional */ }
+  }
+
   async function checkDrive(force = false) {
     try { renderDrive(await api(`/api/drive/status${force ? "?force=true" : ""}`)); }
     catch (e) { renderDrive({ connected: false, error: e.message }); }
@@ -402,6 +465,8 @@
     $("#input-confirm").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#btn-confirm").click(); });
 
     $("#btn-nlm-check").onclick = (e) => withBusy(e.currentTarget, () => checkAuth(true));
+    $("#btn-reconnect").onclick = startReconnect;
+    $("#btn-reconnect-banner").onclick = startReconnect;
     $("#input-cookie-import").onchange = async (e) => {
       const f = e.target.files[0];
       if (!f) return;
@@ -490,6 +555,7 @@
     } catch (e) { toast(`Backend unreachable: ${e.message}`, "error", 8000); }
     connectSSE();
     checkAuth();
+    resumeReconnectIfRunning();
     checkDrive();
   }
 

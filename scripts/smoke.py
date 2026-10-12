@@ -54,14 +54,20 @@ for path in ("/api/notebooks", "/api/runs", "/api/events/history", "/api/setting
     code, data = json_get(path)
     check(f"GET {path}", code == 200 and data is not None, str(code))
 
+code, data = json_get("/api/reconnect/status")
+check("reconnect status shape", code == 200 and isinstance(data, dict) and "available" in data and "state" in data, f"{code} {data}")
+if isinstance(data, dict):
+    print(f"       (reconnect helper: {'running' if data.get('available') else 'not running - optional'})")
+
 
 code, body, ctype = get("/")
 check("index.html served", code == 200 and b"nlm2drive" in body.lower() and "html" in ctype, f"{code} {ctype}")
 html = body.decode("utf-8", "replace")
-for asset in ("app.js", "app.css"):
-    if asset in html:
-        c, b = get("/" + asset)[:2]
-        check(f"asset {asset}", c == 200 and len(b) > 500, str(c))
+for asset in ("app.js", "styles.css"):
+    check(f"{asset} referenced by index.html", asset in html)
+    c, b = get("/" + asset)[:2]
+    check(f"asset {asset}", c == 200 and len(b) > 500, str(c))
+check("reconnect button in UI", 'id="btn-reconnect"' in html and 'id="btn-reconnect-banner"' in html)
 
 code = get("/api/does-not-exist")[0]
 check("unknown API → 404", code == 404, str(code))

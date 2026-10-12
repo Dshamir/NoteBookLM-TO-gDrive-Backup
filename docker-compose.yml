@@ -14,6 +14,9 @@ services:
       - PUBLIC_URL=http://localhost:${UI_PORT:-8765}
       - OAUTHLIB_INSECURE_TRANSPORT=1
       - OAUTHLIB_RELAX_TOKEN_SCOPE=1
+    extra_hosts:
+      # Lets the container call the host-side "Reconnect NotebookLM" helper (127.0.0.1:8766, token-protected).
+      - "host.docker.internal:host-gateway"
     volumes:
       # state.sqlite, NotebookLM session, Google token, staging, logs.
       # NOTE: the archive is uploaded with the Google Drive API (it appears in
