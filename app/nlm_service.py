@@ -20,11 +20,46 @@ ProgressFn = Callable[[str], Awaitable[None] | None]
 
 
 class NotebookLMAuthError(RuntimeError):
-    pass
+    """The NotebookLM Google session is missing, expired or revoked — a human must sign in again."""
 
 
 class IncompleteExport(RuntimeError):
     """A piece of content that exists could not be exported — never delete such a notebook."""
+
+
+_AUTH_MARKERS = (
+    "unauthenticated", "authentication expired", "csrf token", "snlm0e", "run 'notebooklm login'",
+    "missing required cookies", "cookiemismatch", "redirected to sign-in", "no notebooklm session",
+)
+RPC_UNAUTHENTICATED = 16  # gRPC status code
+
+
+def is_auth_error(exc: BaseException | None) -> bool:
+    """True when `exc` (or anything in its cause chain) means 'the Google session is no longer valid'.
+
+    Deliberately narrow: rate limits, 'resource exhausted' and plain network errors are NOT auth errors.
+    """
+    seen = 0
+    while exc is not None and seen < 8:
+        if isinstance(exc, NotebookLMAuthError):
+            return True
+        if type(exc).__name__ in ("AuthError", "AuthExtractionError", "HeadlessReauthError",
+                                  "HeadlessLoginRequiredError"):
+            return True
+        if getattr(exc, "rpc_code", None) == RPC_UNAUTHENTICATED:
+            return True
+        text = str(exc).lower()
+        if any(m in text for m in _AUTH_MARKERS):
+            return True
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return False
+
+
+def _reraise_if_auth(exc: BaseException) -> None:
+    """Inside the exporter's tolerant `except` blocks: an expired session must abort, not degrade."""
+    if is_auth_error(exc):
+        raise NotebookLMAuthError(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
 
 def _iso(dt: Any) -> str | None:
@@ -57,6 +92,16 @@ def storage_file() -> Path:
 def has_session() -> bool:
     return storage_file().exists() or (NOTEBOOKLM_HOME / "storage_state.json").exists() \
         or bool(os.environ.get("NOTEBOOKLM_AUTH_JSON"))
+
+
+def storage_mtime() -> float:
+    """mtime of the saved session file (0 if none) — changes when the user signs in again."""
+    for p in (storage_file(), NOTEBOOKLM_HOME / "storage_state.json"):
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            continue
+    return 0.0
 
 
 def open_client():
@@ -114,6 +159,16 @@ async def list_notebooks(client) -> list[dict]:
     return [notebook_to_dict(nb) for nb in await client.notebooks.list()]
 
 
+async def probe(client) -> int:
+    """Cheap read-only call proving the session really works. Raises NotebookLMAuthError if not."""
+    try:
+        return len(await client.notebooks.list())
+    except Exception as e:  # noqa: BLE001
+        if is_auth_error(e):
+            raise NotebookLMAuthError(f"{type(e).__name__}: {e}"[:300]) from e
+        raise
+
+
 # ---------------------------------------------------------------- export
 
 ARTIFACT_PLAN = {
@@ -157,6 +212,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
     try:
         summary = await client.notebooks.get_summary(nb_id)
     except Exception as e:
+        _reraise_if_auth(e)
         stats["warnings"].append(f"summary unavailable: {e}")
     meta = dict(nb)
     meta["summary"] = summary
@@ -198,6 +254,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
             entry["chars"] = len(content)
             stats["sources"] += 1
         except Exception as e:
+            _reraise_if_auth(e)
             entry["error"] = f"{type(e).__name__}: {e}"[:300]
             is_broken = bool(getattr(s, "is_error", False)) or bool(getattr(s, "is_processing", False))
             if is_broken:
@@ -261,6 +318,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
                     raise IncompleteExport("download produced no file")
                 entry["files"].append(saved_p.relative_to(dest).as_posix())
             except Exception as e:
+                _reraise_if_auth(e)
                 msg = f"{type(e).__name__}: {e}"[:300]
                 if ext == ".md" and kind in ("quiz", "flashcards") and entry["files"]:
                     stats["warnings"].append(f"{kind} '{a.title}' markdown render failed: {msg}")
@@ -276,6 +334,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
     try:
         mms = await client.mind_maps.list(nb_id)
     except Exception as e:
+        _reraise_if_auth(e)
         mms = []
         stats["warnings"].append(f"mind map listing failed: {e}")
     for m in mms:
@@ -286,6 +345,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
             try:
                 tree = await client.mind_maps.get_tree(nb_id, m.id)
             except Exception as e:
+                _reraise_if_auth(e)
                 problems.append(f"mind map '{m.title}': {e}")
                 continue
         out_dir = studio / "mind-maps"
@@ -317,6 +377,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
                 (chat_dir / "history.md").write_text("\n".join(md), encoding="utf-8")
                 stats["chat_turns"] = len(turns)
         except Exception as e:
+            _reraise_if_auth(e)
             stats["warnings"].append(f"chat history unavailable: {e}")
 
     # ---- README + metadata + manifest ------------------------------------
@@ -397,4 +458,5 @@ async def create_test_notebook(client) -> dict:
 
 __all__ = ["open_client", "account_status", "list_notebooks", "export_notebook", "delete_notebook",
            "get_notebook", "create_test_notebook", "has_session", "IncompleteExport",
-           "NotebookLMAuthError", "human_bytes", "safe_name", "_parse_iso"]
+           "NotebookLMAuthError", "is_auth_error", "probe", "storage_mtime",
+           "human_bytes", "safe_name", "_parse_iso"]

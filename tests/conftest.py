@@ -28,17 +28,26 @@ def make_nb(nb_id: str, title: str, year: int, owner: bool = True, sources: int 
                            modified_at=None, last_viewed_at=None, sources_count=sources, is_owner=owner, role="owner")
 
 
+AUTH_ERR = "RPCError: The server rejected this request (unauthenticated)."
+
+
 class FakeNLM:
     def __init__(self, notebooks, fail_fulltext: set[str] | None = None):
         self.data = {nb.id: nb for nb in notebooks}
         self.deleted: list[str] = []
         self.fail_fulltext = fail_fulltext or set()
+        self.auth_fail_fulltext: set[str] = set()   # source ids whose text download hits an expired session
+        self.session_ok = True                      # False -> every call fails like a revoked Google session
+        self.expire_on_export: str | None = None    # session dies while this notebook is being exported
         outer = self
 
         async def nb_list():
             return list(outer.data.values())
 
         async def get_summary(nb_id):
+            if outer.expire_on_export == nb_id:
+                outer.expire_on_export, outer.session_ok = None, False
+                raise RuntimeError(AUTH_ERR)
             return f"Summary of {nb_id}"
 
         async def delete(nb_id):
@@ -55,6 +64,8 @@ class FakeNLM:
                                     is_error=False, is_processing=False) for i in range(n)]
 
         async def get_fulltext(nb_id, sid, output_format="markdown"):
+            if sid in outer.auth_fail_fulltext:
+                raise RuntimeError(AUTH_ERR)
             if sid in outer.fail_fulltext:
                 raise RuntimeError("boom")
             return SimpleNamespace(content=f"Full text of {sid}\n")
@@ -71,6 +82,17 @@ class FakeNLM:
         self.artifacts = SimpleNamespace(list=empty)
         self.mind_maps = SimpleNamespace(list=empty)
         self.chat = SimpleNamespace(get_history=empty)
+
+        def guard(fn):
+            async def inner(*a, **k):
+                if not outer.session_ok:
+                    raise RuntimeError(AUTH_ERR)
+                return await fn(*a, **k)
+            return inner
+
+        for ns in (self.notebooks, self.sources, self.notes, self.artifacts, self.mind_maps, self.chat):
+            for name, fn in list(vars(ns).items()):
+                setattr(ns, name, guard(fn))
 
     def factory(self):
         client = self

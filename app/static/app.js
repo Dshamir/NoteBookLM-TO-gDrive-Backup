@@ -140,7 +140,9 @@
   function renderAuth(a) {
     const ok = !!a.ok;
     $("#nlm-dot").className = `dot ${ok ? "ok" : "bad"}`;
-    $("#nlm-sub").textContent = ok ? `${a.email || "Signed in"} · ${a.notebooks ?? "?"} notebooks` : (a.error || "Not signed in");
+    $("#nlm-sub").textContent = ok
+      ? (a.run_owned ? `${a.email || "Signed in"} · in use by the running archive` : `${a.email || "Signed in"} · ${a.notebooks ?? "?"} notebooks`)
+      : (a.error || "Not signed in");
     $("#nlm-hint").classList.toggle("hidden", ok);
   }
 
@@ -189,8 +191,9 @@
     state.status = st;
     const running = st.state === "running" || st.state === "paused" || st.state === "stopping";
     const pill = $("#run-pill");
-    pill.className = `pill pill-${st.state}`;
-    $("#run-pill-text").textContent = { idle: "Idle", running: st.dry_run ? "Dry run" : "Running", paused: "Paused", stopping: "Stopping" }[st.state] || st.state;
+    $("#run-pill").className = `pill pill-${st.needs_auth ? "auth" : st.state}`;
+    $("#run-pill-text").textContent = st.needs_auth ? "Sign-in needed"
+      : { idle: "Idle", running: st.dry_run ? "Dry run" : "Running", paused: "Paused", stopping: "Stopping" }[st.state] || st.state;
     $("#run-panel").classList.toggle("is-running", st.state === "running");
 
     $("#btn-start").classList.toggle("hidden", running);
@@ -216,7 +219,8 @@
     setText("#st-eta", running ? duration(st.eta_sec) : "–");
 
     const cur = st.current;
-    $("#current").classList.toggle("hidden", !cur || !running);
+    // Never show a 'current notebook' spinner while waiting for a sign-in (nothing is being processed).
+    $("#current").classList.toggle("hidden", !cur || !running || !!st.needs_auth);
     if (cur) {
       $("#cur-title").textContent = cur.title || cur.id;
       $("#cur-detail").textContent = cur.detail || "";
@@ -231,8 +235,15 @@
       if (cur.stage === "UPLOADING" && cur.bytes_total) $("#cur-detail").textContent = `${bytes(cur.bytes)} of ${bytes(cur.bytes_total)} uploaded`;
     }
     const msg = st.message;
-    $("#run-message").classList.toggle("hidden", !msg);
-    if (msg) $("#run-message").textContent = msg;
+    $("#auth-banner").classList.toggle("hidden", !st.needs_auth);
+    $("#auth-banner-detail").textContent = st.needs_auth && msg && msg.includes("still not signed in") ? msg.slice(msg.indexOf("(still")) : (st.needs_auth && msg && msg.startsWith("Re-checking") ? msg : "");
+    $("#run-message").classList.toggle("hidden", !msg || !!st.needs_auth);
+    if (msg && !st.needs_auth) $("#run-message").textContent = msg;
+    if (!!st.needs_auth !== !!state.needsAuth) {
+      state.needsAuth = !!st.needs_auth;
+      if (st.needs_auth) renderAuth({ ok: false, error: "Session expired — the run is waiting for a sign-in" });
+      else checkAuth();
+    }
 
     if (prev && prev !== "idle" && st.state === "idle") { loadRuns(); loadSummary(); }
   }
@@ -372,6 +383,7 @@
     $("#btn-dry-run").onclick = () => startRun(true);
     $("#btn-pause").onclick = () => api("/api/pause", { body: {} }).then(renderStatus);
     $("#btn-resume").onclick = () => api("/api/resume", { body: {} }).then(renderStatus);
+    $("#btn-auth-recheck").onclick = (e) => withBusy(e.currentTarget, async () => { renderStatus(await api("/api/resume", { body: {} })); toast("Re-checking the NotebookLM session…", "info"); });
     $("#btn-stop").onclick = () => { if (confirm("Stop after the current step? Partially processed notebooks restart next time.")) api("/api/stop", { body: {} }).then(renderStatus); };
     $("#btn-e2e").onclick = (e) => {
       if (!confirm("Self-test: create a throwaway notebook, archive it to Drive, verify, then delete it. Continue?")) return;

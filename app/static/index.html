@@ -52,7 +52,7 @@
             <input type="file" id="input-cookie-import" accept=".json,application/json" hidden>
           </label>
         </div>
-        <p class="hint" id="nlm-hint">Log in once with <code>./nlm2drive.sh login</code> (opens Chrome).</p>
+        <p class="hint" id="nlm-hint">Sign in with <code>.\nlm2drive login</code> in PowerShell (opens Chrome), then press Re-check.</p>
       </article>
 
       <article class="card glass conn" id="card-drive">
@@ -180,6 +180,17 @@
         </ol>
         <p class="cur-detail mono" id="cur-detail"></p>
         <div class="progress thin"><div class="progress-fill" id="cur-fill"></div></div>
+      </div>
+      <div class="auth-banner hidden" id="auth-banner" role="alert">
+        <div class="auth-banner-body">
+          <strong>NotebookLM sign-in expired — the run is paused and nothing was lost</strong>
+          <ol>
+            <li>In PowerShell run <code>.\nlm2drive login</code> and sign in to Google (Chrome opens).</li>
+            <li>This page notices the new session by itself and the run carries on with the same notebook.</li>
+          </ol>
+          <p class="auth-banner-detail" id="auth-banner-detail"></p>
+        </div>
+        <button class="btn btn-primary" id="btn-auth-recheck">Re-check now</button>
       </div>
       <p class="run-message hidden" id="run-message"></p>
     </section>

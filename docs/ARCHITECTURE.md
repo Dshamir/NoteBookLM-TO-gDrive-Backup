@@ -71,6 +71,26 @@ stateDiagram-v2
 - **Partial uploads:** a stale folder with the same name is moved to the Drive trash before uploading again.
 - **Incomplete exports** (`IncompleteExport`): retried once. If content is still missing, what exists is archived with `complete=0`, and the notebook is never deleted.
 
+## NotebookLM session expiry (pause-and-recover)
+Google can revoke the NotebookLM web session mid-run (see ADR-010). It is handled as a *run-level* condition, never as a notebook failure:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running
+    Running --> WaitingForSignIn: is_auth_error() on any NotebookLM call
+    WaitingForSignIn --> WaitingForSignIn: probe fails (still signed out)
+    WaitingForSignIn --> Running: probe ok, same notebook is retried
+    WaitingForSignIn --> [*]: Stop
+```
+
+- `nlm_service.is_auth_error()` classifies errors (typed `AuthError`, `rpc_code 16`, `unauthenticated`, CSRF/SNlM0e extraction failures, redirect-to-login). It walks the cause chain and deliberately ignores rate limits (`resource exhausted`) and network errors.
+- The exporter's tolerant `except` blocks re-raise auth errors (`_reraise_if_auth`), so an expired session is never mistaken for "one source failed" (which would have produced an incomplete export).
+- `Runner._process_with_retries` does **not** retry an auth error. It rolls the notebook back (`EXPORTING..UPLOADED` → `NEW`; `CLOUD_VERIFIED/DELETING` keep their stage), leaves `attempts`/`failed` untouched and raises `SessionExpired`.
+- `Runner._recover_session` sets `state=paused, needs_auth=true`, clears `current`, and waits. It re-probes (`_open_probed`: new client + one `notebooks.list()`) when the user presses Re-check/Resume, when `storage_state.json` changes (a new sign-in), or every 5 min. On success the run continues with the **same** notebook.
+- The run also probes the session **before** the first notebook (fail fast) and on every reconnect.
+- While a run owns the session, `/api/auth/status` and `/api/auth/reload` report the runner's view and `/api/refresh` returns 409: a second NotebookLM client would rotate `__Secure-1PSIDTS` concurrently with the run.
+- On startup, notebooks that were marked FAILED only because of an expired session (`StateDB.reset_auth_failures`) are put back in the queue.
+
 ## Export contents (`nlm_service.export_notebook`)
 | Item | API | Saved as |
 |---|---|---|
@@ -97,7 +117,7 @@ stateDiagram-v2
 | GET/POST | `/api/settings` | user settings |
 | POST | `/api/confirm-delete`, `/api/revoke-delete` | typed deletion confirmation |
 | GET | `/api/events` (SSE), `/api/events/history`, `/api/runs` | live feed, log, run history |
-| GET/POST | `/api/auth/status`, `/api/auth/reload`, `/api/auth/import` | NotebookLM session (cookie JSON import supported) |
+| GET/POST | `/api/auth/status`, `/api/auth/reload`, `/api/auth/import` | NotebookLM session (cookie JSON import supported). During a run: runner's view, and a nudge to a run waiting for sign-in |
 | GET/POST | `/api/drive/status`, `/api/drive/credentials`, `/api/drive/connect`, `/api/drive/callback`, `/api/drive/disconnect` | Drive OAuth |
 
 ## Data directory (`./data` → `/data`, git-ignored, **contains secrets**)
@@ -114,4 +134,4 @@ data/
 ```
 
 ## Tests
-`tests/` uses a fake NotebookLM client and an in-memory Drive (`tests/conftest.py`). The in-memory Drive reuses the real `DriveClient.verify_folder`. The tests cover deletion gating, incomplete exports, md5 retry, verification failure, dry run, limit, crash recovery, re-verification before delete, and the full `may_delete` policy matrix. Run them with `.\nlm2drive test`.
+`tests/` uses a fake NotebookLM client and an in-memory Drive (`tests/conftest.py`). The in-memory Drive reuses the real `DriveClient.verify_folder`. The fake NotebookLM can simulate a revoked Google session (`session_ok`, `expire_on_export`, `auth_fail_fulltext`). The tests cover deletion gating, incomplete exports, md5 retry, verification failure, dry run, limit, crash recovery, re-verification before delete, the full `may_delete` policy matrix, and session expiry (pause without failures, resume of the same notebook, Resume while still signed out, Stop while waiting, refusing to start on a dead session, auth-error classification, re-queueing of auth-failed rows). Run them with `.\nlm2drive test`.

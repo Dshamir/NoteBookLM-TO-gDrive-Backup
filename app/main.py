@@ -104,7 +104,25 @@ def _row_out(r: dict) -> dict:
     return r
 
 
+def _run_auth_view() -> dict | None:
+    """While a run owns the NotebookLM session, never open a second client on the same cookie file
+    (two clients rotating __Secure-1PSIDTS concurrently can get the whole Google session revoked).
+    Report what the run itself knows instead."""
+    if not runner.running:
+        return None
+    st = runner.snapshot()
+    last = _cache.get("auth", (0, {}))[1] or {}
+    if st.get("needs_auth"):
+        return {**last, "session": True, "ok": False, "error": "Session expired — sign in again (run is waiting)",
+                "run_owned": True}
+    return {**last, "session": True, "ok": True, "error": None, "run_owned": True,
+            "email": last.get("email")}
+
+
 async def _auth_status(force: bool = False) -> dict:
+    if (view := _run_auth_view()) is not None:
+        runner.nudge()  # a manual re-check while the run waits for a sign-in = look right now
+        return view
     if not force and (hit := _cached("auth", 120)):
         return hit
     return _store("auth", await nlm.account_status())
@@ -151,6 +169,8 @@ async def select_years(body: YearsBody):
 
 @app.post("/api/refresh")
 async def refresh():
+    if runner.running:
+        raise HTTPException(409, "A run is in progress — it owns the NotebookLM session. Refresh the list after it finishes.")
     try:
         async with nlm.open_client() as client:
             items = await nlm.list_notebooks(client)
@@ -327,6 +347,7 @@ async def auth_import(file: UploadFile = File(...)):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data), encoding="utf-8")
     _cache.pop("auth", None)
+    runner.nudge()  # the run (if waiting for a sign-in) picks the new cookies up immediately
     return await _auth_status(True)
 
 

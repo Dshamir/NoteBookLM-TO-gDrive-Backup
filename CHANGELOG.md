@@ -2,6 +2,21 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/), versioning: [SemVer](https://semver.org/).
 
+## [1.0.1] - 2026-10-12
+### Fixed
+- **Run stuck at "metadata" after the NotebookLM session expired mid-run** (ADR-010):
+  - an expired/revoked Google session is now recognised (`is_auth_error`) and pauses the run instead of failing notebooks;
+  - no retries or FAILED marks for it; the interrupted notebook is rolled back and retried;
+  - the run waits for a sign-in and continues by itself (session-file change, Re-check, Resume, or every 5 min);
+  - Resume after the 5-failure auto-pause now rebuilds the NotebookLM connection (it reused the dead client before);
+  - the exporter no longer swallows auth errors as "incomplete export";
+  - notebooks wrongly FAILED by an auth outage are re-queued on startup.
+- UI: no stale "in progress" card while paused/after a failure; red "Sign-in needed" pill and a banner with the exact steps; correct login hint (`.\nlm2drive login`).
+- A second NotebookLM client is no longer opened during a run (status/refresh calls); `/api/refresh` returns 409 while running.
+- `StateDB._x` returned a stale `lastrowid` for UPDATE/DELETE, so the "N notebooks interrupted" count was wrong.
+### Added
+- Session probe before the first notebook (fail fast with a clear message) and on every reconnect.
+- 15 regression tests (42 total) with a fake NotebookLM that can simulate a revoked session.
 ## [1.0.0] - 2026-10-11
 ### Added
 - Dockerized FastAPI service with a local web UI:

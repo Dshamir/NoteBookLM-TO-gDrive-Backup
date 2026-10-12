@@ -5,12 +5,13 @@ import asyncio
 
 import pytest
 
+from app import nlm_service as nlm
 from app.config import SettingsStore
-from app.nlm_service import notebook_to_dict
+from app.nlm_service import NotebookLMAuthError, notebook_to_dict
 from app.runner import EventBus, Runner, may_delete
 from app.state import CLOUD_VERIFIED, DELETED, DELETING, FAILED, NEW, StateDB
 
-from .conftest import FakeDrive, FakeNLM, make_nb
+from .conftest import AUTH_ERR, FakeDrive, FakeNLM, make_nb
 
 
 def notebooks():
@@ -185,3 +186,112 @@ def test_may_delete_policy(row, opts, confirmed, expected):
     from app.config import Settings
     ok, _ = may_delete(row, opts, Settings(delete_confirmed=confirmed))
     assert ok is expected
+
+
+# ---------------------------------------------------------------------------- expired Google session
+# Regression for the "stuck at metadata" incident: the NotebookLM session was revoked mid-run.
+
+async def wait_until(pred, timeout=5.0):
+    end = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < end:
+        if pred():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("condition not reached in time")
+
+
+async def test_session_expiry_pauses_without_failures_and_resumes_same_notebook(tmp_path):
+    client, drive = FakeNLM(notebooks()), FakeDrive()
+    client.expire_on_export = "nb2025bbbb"          # dies while exporting the 2nd notebook
+    runner, db, _ = await setup(tmp_path, client, drive, delete_confirmed=True)
+    runner.auth_poll_sec, runner.auth_recheck_sec = 0.02, 0.0
+    await runner.start({"delete": True})
+    await wait_until(lambda: runner.snapshot().get("needs_auth"))
+
+    st = runner.snapshot()
+    assert st["state"] == "paused" and st["current"] is None      # no stale 'in progress' notebook
+    assert st["failed"] == 0                                      # not a notebook failure
+    assert db.get("nb2025bbbb")["stage"] == NEW                   # rolled back, not FAILED
+    assert db.get("nb2025bbbb")["attempts"] in (0, None)
+    assert client.deleted == ["nb2024aaaa"]                       # the finished one stays finished
+
+    # Pressing Resume while still signed out must NOT un-pause the run.
+    runner.resume()
+    await asyncio.sleep(0.15)
+    assert runner.snapshot()["needs_auth"] and runner.snapshot()["state"] == "paused"
+
+    client.session_ok = True                                      # user signs in again
+    await asyncio.wait_for(runner._task, 10)
+    st = runner.snapshot()
+    assert sorted(client.deleted) == ["nb2024aaaa", "nb2025bbbb"]
+    assert db.get("nb2025bbbb")["stage"] == DELETED
+    assert st["failed"] == 0 and st["needs_auth"] is False and st["finished"] == "completed"
+
+
+async def test_stop_while_waiting_for_sign_in(tmp_path):
+    client, drive = FakeNLM(notebooks()), FakeDrive()
+    client.expire_on_export = "nb2024aaaa"
+    runner, db, _ = await setup(tmp_path, client, drive, delete_confirmed=True)
+    runner.auth_poll_sec = 0.02
+    await runner.start({"delete": True})
+    await wait_until(lambda: runner.snapshot().get("needs_auth"))
+    runner.stop()
+    await asyncio.wait_for(runner._task, 5)
+    assert runner.snapshot()["finished"] == "stopped" and client.deleted == []
+    assert db.get("nb2024aaaa")["stage"] == NEW
+
+
+async def test_run_does_not_start_on_a_dead_session(tmp_path):
+    client, drive = FakeNLM(notebooks()), FakeDrive()
+    client.session_ok = False
+    runner, db, _ = await setup(tmp_path, client, drive, delete_confirmed=True)
+    st = await run(runner, delete=True)
+    assert st["finished"] == "error" and st["failed"] == 0 and client.deleted == []
+    assert all(r["stage"] == NEW for r in db.list_notebooks())
+
+
+async def test_expired_session_during_source_download_is_not_an_incomplete_export(tmp_path):
+    client, drive = FakeNLM(notebooks()), FakeDrive()
+    client.auth_fail_fulltext = {"nb2024aaaa-s0"}
+    _, db, _ = await setup(tmp_path, client, drive)
+    row = db.get("nb2024aaaa")
+    with pytest.raises(NotebookLMAuthError):
+        await nlm.export_notebook(client, {k: row.get(k) for k in ("id", "title", "emoji", "created_at", "year",
+                                                                   "sources_count", "is_owner")}, tmp_path / "x")
+
+
+@pytest.mark.parametrize("exc,expected", [
+    (RuntimeError(AUTH_ERR), True),
+    (ValueError("CSRF token not found in HTML. Final URL: https://notebook.google.com/"), True),
+    (RuntimeError("Failed to extract CSRF token (SNlM0e). Page structure may have changed"), True),
+    (RuntimeError("Authentication expired. Run 'notebooklm login' to re-authenticate."), True),
+    (NotebookLMAuthError("x"), True),
+    (RuntimeError("outer"), False),
+    (RuntimeError("The server rejected this request (resource exhausted)."), False),
+    (RuntimeError("boom"), False),
+    (TimeoutError("read timed out"), False),
+])
+def test_auth_error_classification(exc, expected):
+    assert nlm.is_auth_error(exc) is expected
+
+
+def test_auth_error_found_through_cause_chain():
+    try:
+        try:
+            raise RuntimeError(AUTH_ERR)
+        except RuntimeError as inner:
+            raise RuntimeError("wrapper") from inner
+    except RuntimeError as outer:
+        assert nlm.is_auth_error(outer)
+
+
+def test_auth_failed_rows_are_requeued_but_real_failures_are_not(tmp_path):
+    db = StateDB(tmp_path / "s.sqlite")
+    db.upsert_listing([notebook_to_dict(n) for n in notebooks()], [2024, 2025])
+    db.set_stage("nb2024aaaa", FAILED, error="RPCError: The server rejected this request (unauthenticated).", attempts=1)
+    db.set_stage("nb2025bbbb", FAILED, error="DriveError: cloud verification failed", attempts=1)
+    db.set_stage("nb2023cccc", CLOUD_VERIFIED, error="RPCError: ... (unauthenticated).")
+    assert db.reset_auth_failures() == 1
+    assert db.get("nb2024aaaa")["stage"] == NEW and db.get("nb2024aaaa")["attempts"] == 0
+    assert db.get("nb2025bbbb")["stage"] == FAILED
+    assert db.get("nb2023cccc")["stage"] == CLOUD_VERIFIED   # verified Drive copy untouched

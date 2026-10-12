@@ -92,3 +92,26 @@ The only exception is the e2e self-test notebook created by the app itself.
 - Personal accounts: **Publish → In production**, and accept the one-time "unverified app" screen.
 
 **Scope.** `https://www.googleapis.com/auth/drive` is needed to find existing folders and verify them; `drive.file` cannot see folders it didn't create.
+
+
+## ADR-010 · An expired Google session pauses the run; it is never a notebook failure (2026-10-12)
+**Context.** ~2 h into the first big run (74 notebooks archived and deleted) the NotebookLM session was revoked server-side. Every call returned `RPCError … (unauthenticated)` and the token fetch landed on the public NotebookLM page (`CSRF token not found … Final URL: https://notebook.google.com/`). Evidence for a server-side revocation rather than a client bug: the stored `__Secure-1PSIDTS` still carried its login-time expiry (never rotated on disk), all required cookies were present, and `notebooklm auth check --test` failed only at "Token fetch". The exact trigger is Google's (session policy, device-bound cookies or revocation after heavy automated use). It cannot be prevented from here, so the app must survive it.
+
+What went wrong in the app (the "stuck" UI):
+1. Auth errors were treated like any other error: 3 attempts with 5 s / 20 s back-off per notebook, then the notebook was marked **FAILED** (4 notebooks, plus a failed delete counted on a fully verified one). After 5 of those the run auto-paused.
+2. **Resume could not recover**: the run kept using the same dead client, so it just failed 5 more notebooks and paused again. Re-login on the host was never picked up.
+3. The UI kept showing the last notebook as "in progress" with a spinner on step "metadata", and the message said "check the login" without how.
+4. The exporter's tolerant `except` blocks would also have turned an auth error into an *incomplete export* (safe, since never deleted, but misleading and wasteful).
+5. The UI's status/refresh calls opened a **second** NotebookLM client on the same cookie file while the run held one. Concurrent `RotateCookies` calls on one session are a plausible way to provoke revocation.
+
+**Decision.**
+- `is_auth_error()` classifies session failures (narrowly: not rate limits or network errors). The exporter re-raises them.
+- An auth error raises `SessionExpired` out of the retry loop: the notebook is rolled back with no failure mark and no attempt count; the run enters `paused` + `needs_auth`, clears `current`, and waits.
+- Recovery is automatic: re-probe on Re-check/Resume, when `storage_state.json` changes, and every 5 min. A probe is a fresh client plus one cheap `notebooks.list()`. The same notebook is then retried.
+- A probe also runs before the first notebook (fail fast) and on every reconnect (incl. after the 5-failure auto-pause, which now rebuilds the client on Resume).
+- During a run, `/api/auth/*` reports the runner's view and `/api/refresh` is refused (409): one NotebookLM client per cookie file.
+- On startup, notebooks that were FAILED only because of auth return to the queue.
+
+**Consequences.** An outage costs one wait, not a batch of false failures. Safety invariants are unchanged (deletion still only via `may_delete` after fresh MD5 verification; a notebook interrupted at DELETING is re-checked).
+
+**Not done (options).** A durable fix for the *cause* needs a longer-lived credential: `notebooklm login --master-token` (layer-4 re-mint from a stored master token; needs the `[headless]` extra and an account-equivalent secret in `data/`) or signing in with Firefox cookies. Both have security trade-offs, so they are left as a deliberate user decision.

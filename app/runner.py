@@ -27,12 +27,21 @@ from .state import (CLOUD_VERIFIED, DELETED, DELETING, EXPORTED, EXPORTING, FAIL
 
 NOTEBOOK_ATTEMPTS = 3          # whole-notebook retries inside one run
 EXPORT_ATTEMPTS = 2            # extra tries when some content failed to download
-MAX_CONSECUTIVE_FAILURES = 5   # then auto-pause (usually expired auth / rate limiting)
+MAX_CONSECUTIVE_FAILURES = 5   # then auto-pause (rate limiting, Drive trouble, ...)
+AUTH_POLL_SEC = 30.0           # while waiting for a new sign-in: how often to look for one
+AUTH_RECHECK_SEC = 300.0       # ...and how often to re-probe Google even if nothing changed
 NB_FIELDS = ("id", "title", "emoji", "created_at", "year", "sources_count", "is_owner")
+AUTH_MESSAGE = ("NotebookLM session expired - sign in again with  .\\nlm2drive login  (or import cookies in the "
+                "NotebookLM card). The run continues by itself as soon as the session works; no notebook was "
+                "marked failed.")
 
 
 class Stopped(Exception):
     """Raised at a checkpoint when the user pressed Stop."""
+
+
+class SessionExpired(Exception):
+    """The NotebookLM Google session died mid-run. Not a notebook failure: pause and wait for a sign-in."""
 
 
 # ----------------------------------------------------------------------------- event bus
@@ -111,6 +120,8 @@ class Runner:
         self.client_factory = client_factory
         self.staging = staging
         self._sleep = sleep
+        self.auth_poll_sec = AUTH_POLL_SEC
+        self.auth_recheck_sec = AUTH_RECHECK_SEC
         self._task: asyncio.Task | None = None
         self._stop = False
         self._resume = asyncio.Event()
@@ -124,7 +135,7 @@ class Runner:
         return {"state": "idle", "run_id": None, "dry_run": False, "delete": False, "total": 0,
                 "done": 0, "archived": 0, "deleted": 0, "kept": 0, "failed": 0, "bytes_done": 0,
                 "bytes_exported": 0, "started_at": None, "started_ts": None, "eta_sec": None,
-                "current": None, "message": None}
+                "current": None, "message": None, "needs_auth": False}
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -178,6 +189,10 @@ class Runner:
         n = self.db.reset_interrupted()
         if n:
             self.db.add_event("warn", f"{n} notebook(s) were interrupted mid-archive and will restart")
+        m = self.db.reset_auth_failures()
+        if m:
+            self.db.add_event("info", f"{m} notebook(s) that only failed because the NotebookLM session had "
+                                      "expired were put back in the queue")
 
     async def start(self, opts: dict) -> int:
         if self.running:
@@ -206,9 +221,20 @@ class Runner:
 
     def resume(self) -> None:
         if self.running:
+            if self.status.get("needs_auth"):
+                # Stay paused until the session is proven to work (_recover_session flips the state).
+                self._set(message="Re-checking the NotebookLM session…")
+                self._resume.set()
+                self.log("info", "Re-checking the NotebookLM session…")
+                return
             self._resume.set()
             self._set(state="running", message=None)
             self.log("info", "Resumed")
+
+    def nudge(self) -> None:
+        """The UI just re-checked/imported the session: if we're waiting for a sign-in, look right now."""
+        if self.running and self.status.get("needs_auth"):
+            self._resume.set()
 
     def stop(self) -> None:
         if self.running:
@@ -235,8 +261,7 @@ class Runner:
             if not opts["dry_run"] and not self.drive.connected():
                 raise DriveError("Google Drive is not connected")
             if opts.get("e2e"):
-                cm = self.client_factory()
-                client = await cm.__aenter__()
+                cm, client = await self._open_probed(None)
                 self.log("info", "E2E self-test: creating a throwaway notebook…")
                 nb = await nlm.create_test_notebook(client)
                 self.db.upsert_one(nb, selected=False)
@@ -267,33 +292,50 @@ class Runner:
                 return
 
             if cm is None:
-                cm = self.client_factory()
-                client = await cm.__aenter__()
+                cm, client = await self._open_probed(None)  # fail fast if the session is already dead
             opened = time.time()
             consecutive = 0
-            for i, row in enumerate(queue):
+            reconnect = False
+            i = 0
+            while i < len(queue):
+                row = queue[i]
                 await self._checkpoint()
                 s = self.settings.get()
-                if time.time() - opened > s.auth_refresh_hours * 3600:
-                    self.log("info", "Refreshing NotebookLM session…")
-                    await cm.__aexit__(None, None, None)
-                    cm = self.client_factory()
-                    client = await cm.__aenter__()
-                    opened = time.time()
-                result = await self._process_with_retries(client, row["id"], opts)
+                try:
+                    if reconnect or time.time() - opened > s.auth_refresh_hours * 3600:
+                        self.log("info", "Reconnecting to NotebookLM…")
+                        cm, client = await self._open_probed(cm)
+                        opened, reconnect = time.time(), False
+                    result = await self._process_with_retries(client, row["id"], opts)
+                except (SessionExpired, nlm.NotebookLMAuthError) as e:
+                    # Not this notebook's fault: wait for a working session, then do the same notebook again.
+                    cm, client = await self._recover_session(cm, client, str(e))
+                    opened, reconnect = time.time(), False
+                    continue
                 self._bump("done")
                 consecutive = consecutive + 1 if result == FAILED else 0
                 if consecutive >= MAX_CONSECUTIVE_FAILURES:
-                    self.pause()
-                    self._set(message=f"{consecutive} failures in a row — auto-paused. "
-                                      "Check the NotebookLM login / Drive, then Resume.")
-                    self.log("error", self.status["message"])
+                    # Something systemic (rate limit, Drive, network). Pause, drop the stale 'current' card and
+                    # reconnect with a fresh client when the user resumes.
+                    self._current(None)
+                    self._resume.clear()
+                    msg = (f"{consecutive} notebooks failed in a row - auto-paused. Check the activity log and "
+                           "the Drive / NotebookLM cards, then press Resume (the connection is rebuilt).")
+                    self._set(state="paused", message=msg)
+                    self.log("error", msg)
+                    self.bus.publish({"type": "status"})
+                    reconnect = True
                     consecutive = 0
                 if i < len(queue) - 1 and s.inter_notebook_delay_sec:
                     await self._sleep(s.inter_notebook_delay_sec)
+                i += 1
         except Stopped:
             final = "stopped"
             self.log("warn", "Run stopped by user")
+        except nlm.NotebookLMAuthError as e:
+            final = "error"
+            self.log("error", f"NotebookLM session is not valid ({e}). Sign in again with .\\nlm2drive login "
+                              "and start the run again."[:500])
         except Exception as e:  # noqa: BLE001
             final = "error"
             self.log("error", f"Run aborted: {type(e).__name__}: {e}"[:500])
@@ -312,6 +354,82 @@ class Runner:
             self._set(state="idle", current=None, finished=final)
             self.bus.publish({"type": "run_finished", "status": final})
 
+    # ------------------------------------------------------------------ session handling
+    async def _open_probed(self, old_cm):
+        """(Re)open the NotebookLM client and prove it works with one cheap read. Returns (cm, client)."""
+        if old_cm is not None:
+            try:
+                await old_cm.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
+        cm = self.client_factory()
+        client = await cm.__aenter__()
+        try:
+            await nlm.probe(client)
+        except BaseException:
+            try:
+                await cm.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        return cm, client
+
+    def _rollback_for_auth(self, nb_id: str) -> None:
+        """The notebook did nothing wrong: undo half-done work and leave no error mark / attempt count."""
+        cur = self.db.get(nb_id) or {}
+        if cur.get("stage") in (EXPORTING, EXPORTED, UPLOADING, UPLOADED):
+            self._stage(nb_id, NEW, error="session expired — will retry")
+        else:  # CLOUD_VERIFIED / DELETING keep their stage: the Drive copy is intact and re-verified later
+            self.db.update(nb_id, error="session expired — will retry")
+
+    async def _recover_session(self, cm, client, reason: str):
+        """Pause until NotebookLM accepts our session again; returns a fresh (cm, client).
+
+        Wakes up (a) when the user presses Resume / Re-check, (b) as soon as the saved session file changes
+        (i.e. they signed in again), (c) every `auth_recheck_sec` regardless. Stop aborts the wait.
+        """
+        if self._stop:
+            raise Stopped()
+        self._current(None)
+        self._resume.clear()
+        self._set(state="paused", needs_auth=True, message=AUTH_MESSAGE)
+        self.log("error", f"NotebookLM session expired ({reason})"[:400])
+        self.log("warn", "Paused: waiting for a new NotebookLM sign-in. Nothing was lost; the run continues "
+                         "automatically afterwards.")
+        self.bus.publish({"type": "status"})
+        last_try = time.time()
+        last_mtime = nlm.storage_mtime()
+        while True:
+            forced = False
+            try:
+                await asyncio.wait_for(self._resume.wait(), timeout=self.auth_poll_sec)
+                forced = True
+            except asyncio.TimeoutError:
+                pass
+            if self._stop:
+                raise Stopped()
+            mtime = nlm.storage_mtime()
+            if not (forced or mtime != last_mtime or time.time() - last_try >= self.auth_recheck_sec):
+                continue
+            last_mtime, last_try = mtime, time.time()
+            self._set(message="Re-checking the NotebookLM session…")
+            self.bus.publish({"type": "status"})
+            try:
+                cm, client = await self._open_probed(cm)
+            except Stopped:
+                raise
+            except Exception as e:  # noqa: BLE001 - still signed out (or Google unreachable): keep waiting
+                self._resume.clear()
+                self._set(message=f"{AUTH_MESSAGE}  (still not signed in: {type(e).__name__})")
+                self.bus.publish({"type": "status"})
+                continue
+            break
+        self._resume.set()
+        self._set(state="running", needs_auth=False, message=None)
+        self.log("ok", "NotebookLM session works again — resuming where it stopped")
+        self.bus.publish({"type": "status"})
+        return cm, client
+
     async def _process_with_retries(self, client, nb_id: str, opts: dict) -> str:
         last: Exception | None = None
         for attempt in range(1, NOTEBOOK_ATTEMPTS + 1):
@@ -324,6 +442,11 @@ class Runner:
                     self._stage(nb_id, NEW, error="stopped — will restart")
                 raise
             except Exception as e:  # noqa: BLE001
+                if nlm.is_auth_error(e):
+                    # Retrying with the same dead session is pointless and would wrongly mark this notebook
+                    # FAILED. Hand over to the run loop, which waits for a sign-in.
+                    self._rollback_for_auth(nb_id)
+                    raise SessionExpired(f"{type(e).__name__}: {e}"[:300]) from e
                 last = e
                 msg = f"{type(e).__name__}: {e}"[:400]
                 if attempt < NOTEBOOK_ATTEMPTS:
@@ -339,6 +462,7 @@ class Runner:
             self._stage(nb_id, FAILED, error=msg, attempts=(cur.get("attempts") or 0) + 1)
         self._bump("failed")
         self.log("error", f"FAILED: {msg}", nb_id)
+        self._current(None)  # don't leave the failed notebook shown as 'in progress'
         return FAILED
 
     # ------------------------------------------------------------------ one notebook

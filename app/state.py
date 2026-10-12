@@ -92,6 +92,8 @@ class StateDB:
     def _x(self, sql: str, params: Iterable[Any] = ()) -> int:
         with self._lock:
             cur = self._conn.execute(sql, tuple(params))
+            if sql.lstrip().upper().startswith(("UPDATE", "DELETE")):
+                return cur.rowcount  # lastrowid is stale connection state for these
             return cur.lastrowid or cur.rowcount
 
     # -- notebooks -----------------------------------------------------------
@@ -195,6 +197,19 @@ class StateDB:
         return self._x(
             """UPDATE notebooks SET stage='NEW', error='interrupted — will restart'
                WHERE stage IN ('EXPORTING','EXPORTED','UPLOADING','UPLOADED')""")
+
+    def reset_auth_failures(self) -> int:
+        """FAILED only because the Google session had expired (not a real failure) -> back in the queue.
+
+        Never touches CLOUD_VERIFIED/DELETING rows: their Drive copy is intact and they re-verify normally.
+        """
+        return self._x(
+            """UPDATE notebooks SET stage='NEW', error='session expired — will retry',
+                      attempts=MAX(COALESCE(attempts,0)-1,0), updated_at=?
+               WHERE stage='FAILED' AND (
+                     LOWER(error) LIKE '%unauthenticated%' OR LOWER(error) LIKE '%csrf token%'
+                  OR LOWER(error) LIKE '%authentication expired%' OR LOWER(error) LIKE '%session expired%')""",
+            (now_iso(),))
 
     def counts(self) -> dict:
         rows = self._q("SELECT stage, COUNT(*) n FROM notebooks GROUP BY stage")
