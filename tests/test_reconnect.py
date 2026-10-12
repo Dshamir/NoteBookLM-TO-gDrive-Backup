@@ -362,3 +362,35 @@ def test_ui_ships_the_reconnect_controls():
     for el in ("btn-reconnect", "btn-reconnect-banner", "reconnect-status", "reconnect-banner-status"):
         assert f'id="{el}"' in html
     assert "/api/reconnect" in js and "/api/reconnect/status" in js
+
+# ----------------------------------------------------------------------------- attack-phase regressions
+
+
+def test_cancel_that_arrives_before_the_process_exists_still_kills_it(tmp_path):
+    job = rh.LoginJob(lambda fresh: [sys.executable, "-c", "import time; time.sleep(60)"], tmp_path / "s.json", 30)
+    job.state, job.started_at, job._cancelled = "running", time.time(), True  # Cancel won the race against Popen
+    t = threading.Thread(target=job._run, args=(False,))
+    t.start()
+    t.join(10)
+    assert not t.is_alive(), "login subprocess was left running after Cancel"
+    assert job.snapshot()["message"] == "Cancelled."
+
+
+def test_oversized_request_body_is_ignored_and_helper_stays_healthy(make_helper):
+    h = make_helper(mode="ok")
+    conn = http.client.HTTPConnection("127.0.0.1", h.port, timeout=10)
+    conn.request("POST", "/login", headers={"Authorization": f"Bearer {TOKEN}", "Content-Length": "9999999"})
+    assert conn.getresponse().status in (200, 202)  # body never read: defaults, no crash, no hang
+    conn.close()
+    wait_state(h)
+    assert req(h, "GET", "/status")[0] == 200
+
+
+def test_runs_are_refused_while_a_sign_in_is_rewriting_the_cookie_file(api):
+    h = api.connect(mode="hang")
+    api.post("/api/reconnect", json={})
+    r = api.post("/api/run", json={})
+    assert r.status_code == 409 and "sign-in is in progress" in r.json()["error"]
+    assert api.post("/api/test-e2e").status_code == 409
+    api.post("/api/reconnect/cancel")
+    wait_state(h)

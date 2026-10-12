@@ -140,6 +140,8 @@ class LoginJob:
             self._finish(False, f"Could not start the sign-in: {e}")
             return
         self._proc = proc
+        if self._cancelled:  # Cancel arrived before the process handle existed (it was a no-op then)
+            self._kill()
         # A user who walks away must not leave a browser + subprocess hanging forever.
         timer = threading.Timer(self._max_sec, self._on_timeout)
         timer.daemon = True
@@ -179,6 +181,7 @@ def make_handler(job: LoginJob, token: str, on_shutdown: Callable[[], None]) -> 
     class Handler(BaseHTTPRequestHandler):
         server_version = "nlm2drive-helper"
         protocol_version = "HTTP/1.1"
+        timeout = 15  # a client that stalls mid-request must not hold a thread (and the port) forever
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - quiet: never log headers/tokens
             return
@@ -213,6 +216,8 @@ def make_handler(job: LoginJob, token: str, on_shutdown: Callable[[], None]) -> 
             except ValueError:
                 return {}
             if n <= 0 or n > MAX_BODY:
+                if n > MAX_BODY:
+                    self.close_connection = True  # we did not read the body: the connection is desynced
                 return {}
             try:
                 data = json.loads(self.rfile.read(n))
@@ -244,6 +249,17 @@ def make_handler(job: LoginJob, token: str, on_shutdown: Callable[[], None]) -> 
                 self._send(404, {"error": "not found"})
 
     return Handler
+
+
+class QuietServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that does not print a traceback when a client simply drops the connection."""
+
+    daemon_threads = True
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 def default_login_cmd(login_script: Path, data_dir: Path, version: str, browser: str) -> Callable[[bool], list[str]]:
@@ -282,7 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         threading.Thread(target=lambda: server_box[0].shutdown(), daemon=True).start()
 
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(job, token, shutdown))
+        server = QuietServer(("127.0.0.1", args.port), make_handler(job, token, shutdown))
     except OSError as e:
         print(f"cannot listen on 127.0.0.1:{args.port}: {e} (already running?)", file=sys.stderr)
         return 3

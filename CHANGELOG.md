@@ -7,7 +7,8 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 - **Reconnect NotebookLM button** (ADR-011): in the red "Sign-in needed" banner and on the NotebookLM card. Opens the Google sign-in in Chrome on the PC, shows live progress, and the paused run resumes by itself. NotebookLM has no OAuth, so this is the same browser sign-in as `.\nlm2drive login`, started from the UI.
   - Host helper `scripts/reconnect_helper.py` (loopback-only, bearer token, rejects `Origin`/foreign `Host`, single-flight, 15 min limit); `scripts/helper.ps1`; `.\nlm2drive helper start|stop|status|install|uninstall` (`up`/`down` manage it; `install` = Windows logon task).
   - API `GET /api/reconnect/status`, `POST /api/reconnect`, `POST /api/reconnect/cancel` (cross-site `Origin` refused; 409 while a run holds a working session; 503 with instructions when no helper).
-  - 27 new tests (69 total) run the real helper in-process with a fake sign-in command.
+  - 30 new tests (72 total) run the real helper in-process with a fake sign-in command (security, lifecycle, timeouts, cancel races, API integration).
+  - Hardening from the adversarial review: Cancel that races the process start, stalled-client socket timeout, oversized bodies, no traceback spam on dropped connections, and `/api/run` / `/api/test-e2e` refuse (409) while a sign-in is rewriting the cookie file.
 - Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`.
 ### Changed
 - Lint/type clean-up: exception chaining on API errors, blocking directory ops in the exporter moved off the event loop, md5 marked as a non-security checksum, `typing` fixes.

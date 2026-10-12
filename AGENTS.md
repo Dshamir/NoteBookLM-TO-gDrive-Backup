@@ -18,17 +18,26 @@ Read this first when resuming work on this project.
 7. Pin `notebooklm-py` (`requirements.txt` + `NOTEBOOKLM_PY_VERSION`). It uses undocumented Google RPCs.
 8. **An expired Google session is a run-level pause, never a notebook failure** (ADR-010). Keep `nlm.is_auth_error` / `SessionExpired` / `Runner._recover_session` intact; never retry or mark FAILED on auth errors; exporter `except` blocks must call `_reraise_if_auth`.
 9. **One NotebookLM client per cookie file.** While a run is active, API endpoints must not open another client (`_run_auth_view`; `/api/refresh` returns 409).
+10. **The reconnect helper stays a loopback-only, token-protected, single-purpose service** (ADR-011): binds `127.0.0.1`, bearer token from `data/helper.json`, rejects any `Origin` and foreign `Host`, only ever runs `scripts/login.ps1`. The browser must never talk to it directly (the UI calls `/api/reconnect*`, which refuses cross-site origins, refuses while a run holds a *working* session, and `/api/run` refuses while a sign-in is in progress). `storage_state.json` is written atomically (temp + rename). Keep `tests/test_reconnect.py` green.
 
 ## How to work on it
 ```powershell
+.\nlm2drive check     # ALL gates: ruff + mypy + pytest in the container (+ live smoke if the stack is up)
 .\nlm2drive test      # build image + pytest in container (fake NotebookLM + in-memory Drive)
-.\nlm2drive up        # rebuild + restart (static files are baked into the image)
+.\nlm2drive lint | typecheck | smoke
+.\nlm2drive up        # rebuild + restart (static files are baked into the image); also starts the reconnect helper
 .\nlm2drive logs
+.\nlm2drive helper status|start|stop|install|uninstall   # host helper behind the UI's Reconnect button
 ```
+- Pipeline used for every change (the owner asked for it): CODE → commit → docs → lint → typecheck → tests → smoke → adversarial review ("roast") → repair → commit → push.
+- `ruff` config and the *justified* ignores live in `pyproject.toml`; do not widen them silently.
+- Tests import `app.main` safely: `tests/conftest.py` points `DATA_DIR`/`NOTEBOOKLM_HOME` at a temp dir *before* any app import. Keep that.
 - The host Python is 3.8 (too old). Run everything in the container, or use `uv`/`uvx` with `--python 3.12`.
 - Docker CLI: `C:\Program Files\Docker\Docker\resources\bin\docker.exe` (not on PATH by default).
 - In PowerShell, native stderr shows up as red `NativeCommandError` text even on success; check the real exit status.
 - Line endings: `*.sh` LF, `*.cmd`/`*.ps1` CRLF (`.gitattributes`).
+- PowerShell 5.1 gotchas seen here: `>` writes UTF-16; `[IO.File]::ReadAllText` + `WriteAllText` with a UTF-8 no-BOM encoding is the safe round trip; heredocs break, write scripts to `scratch/` and run them; a `docker run` that is piped through `Select-Object` only prints at the end.
+- `grep_search` fails on this host; use `Select-String`. Run `Remove-Item Env:GITHUB_TOKEN` before `git push` / `gh`.
 
 ## notebooklm-py 0.8.4 API facts (verified by introspection)
 - `NotebookLMClient.from_storage(keepalive=900)` is an async context manager. Storage is `$NOTEBOOKLM_HOME/profiles/default/storage_state.json`.
@@ -40,7 +49,10 @@ Read this first when resuming work on this project.
 
 ## Current state (2026-10-12)
 - v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
-  - 2026-10-12: first big run archived+deleted 74 notebooks, then Google revoked the NotebookLM session (~2 h in). Fixed in 1.0.1 (ADR-010). Recovery = `.\nlm2drive login`; the paused run continues by itself.
+- 2026-10-12: v1.0.1 (session-expiry fix, ADR-010) plus, unreleased on `main`: quality gates (ruff/mypy/smoke) and the **Reconnect NotebookLM button** (ADR-011). 72 tests.
+  - 2026-10-12: first big run archived+deleted 74 notebooks, then Google revoked the NotebookLM session (~2 h in). The run now pauses; recovery = press **Reconnect NotebookLM** in the UI (or `.\nlm2drive login`); the paused run continues by itself.
+  - The real-Windows path of the helper (hidden `powershell` spawn, `taskkill` tree kill, `uv` start, logon task) was verified manually once on 2026-10-12 (Reconnect via the API: Chrome opened, session saved and validated in 12 s, 413 notebooks); the unit tests use a fake sign-in command.
+  - The live stack answered the smoke test with the helper running (container → `host.docker.internal:8766` works on Docker Desktop).
   - Login: Chrome, Workspace account, 498 notebooks.
   - Drive connected (Audience = Internal).
   - Archive-only trial: 1 notebook, 11 files, 15.5 MB, verified in about 30 s.
@@ -53,3 +65,6 @@ Read this first when resuming work on this project.
 - Optional scheduled runs (e.g. monthly: archive notebooks older than N months).
 - Upstream: report the `login` landing-page false positive to notebooklm-py.
 - Optionally save original-file metadata for uploaded PDFs (the originals themselves are not retrievable from NotebookLM).
+- Durable NotebookLM credential so no human sign-in is ever needed (master token / Firefox cookies / `NOTEBOOKLM_REFRESH_CMD`): deliberately NOT done, security trade-off, owner has not decided (ADR-010 "Not done").
+- Verify on the next long run whether waiting for the `PSIDRTS` cookies at login prevents the ~2 h revocation.
+- Remaining ~11 notebooks of the 2024-2025 set await the owner pressing **Archive & delete** (the agent never starts deleting runs on its own).

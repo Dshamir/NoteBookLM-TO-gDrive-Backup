@@ -187,8 +187,15 @@ async def refresh():
     return {"ok": True, "count": len(items)}
 
 
+async def _refuse_during_sign_in() -> None:
+    snap = await reconnect.status()
+    if snap.get("state") == "running":
+        raise HTTPException(409, "A NotebookLM sign-in is in progress - finish it in the browser window first.")
+
+
 @app.post("/api/run")
 async def run(body: RunBody):
+    await _refuse_during_sign_in()
     opts = body.model_dump()
     if opts["delete"] is None:
         opts["delete"] = settings.get().delete_after_verify
@@ -201,6 +208,7 @@ async def run(body: RunBody):
 
 @app.post("/api/test-e2e")
 async def test_e2e():
+    await _refuse_during_sign_in()
     try:
         run_id = await runner.start({"e2e": True, "delete": True})
     except RuntimeError as e:

@@ -113,6 +113,8 @@ Google can revoke the NotebookLM browser session during a long run. **Nothing is
 1. Press **Reconnect NotebookLM** (red banner, or the *Reconnect* button on the NotebookLM card) and sign in to Google in the Chrome window that opens.
 2. That's it. The page notices the new session and the run continues with the same notebook.
 
+![Reconnect NotebookLM: the banner while the Google sign-in is open](docs/assets/reconnect_ui.png)
+
 > NotebookLM has no OAuth / public API (only Drive does), so the renewal is a normal Google sign-in in Chrome. The button works through a small, loopback-only, token-protected helper that `.\nlm2drive up` starts on your PC ([ADR-011](docs/DECISIONS.md)). Without it, run `.\nlm2drive login` (or `.\nlm2drive helper start` once, or `.\nlm2drive helper install` to start it at every Windows logon).
 
 ---
