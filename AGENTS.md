@@ -49,7 +49,10 @@ Read this first when resuming work on this project.
 
 ## Current state (2026-10-12)
 - v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
-- 2026-10-12: v1.0.1 (session-expiry fix, ADR-010) plus, unreleased on `main`: quality gates (ruff/mypy/smoke) and the **Reconnect NotebookLM button** (ADR-011). 72 tests.
+- 2026-10-12: v1.0.1 (session-expiry fix, ADR-010) plus, unreleased on `main`: quality gates (ruff/mypy/smoke), the **Reconnect NotebookLM button** (ADR-011), and the **Grid View / Advanced Search / Date Cutoff / Notebook Inspector** upgrade. 73 tests.
+  - Grid View & Cards: Table ↔ Grid toggle switch, generative mesh gradient hero thumbnails, 3D frosted glass emojis, status indicators, and direct NotebookLM (`↗ Live`) and Drive links.
+  - Advanced Search & Filters: dynamic Year chips with live counts (`All years (498)`, `2026 (413)`, `2025 (81)`, `2024 (4)`), Month dropdown filter (`01 · Jan` .. `12 · Dec`), auto-extracted Topic chips, and "Created before <date>" cutoff selector with `POST /api/notebooks/select-cutoff`.
+  - In-App Notebook Inspector Modal: full metadata, status, Drive verification, and content/artifact stats (sources, notes, media, chat turns).
   - 2026-10-12: first big run archived+deleted 74 notebooks, then Google revoked the NotebookLM session (~2 h in). The run now pauses; recovery = press **Reconnect NotebookLM** in the UI (or `.\nlm2drive login`); the paused run continues by itself.
   - The real-Windows path of the helper (hidden `powershell` spawn, `taskkill` tree kill, `uv` start, logon task) was verified manually once on 2026-10-12 (Reconnect via the API: Chrome opened, session saved and validated in 12 s, 413 notebooks); the unit tests use a fake sign-in command.
   - The live stack answered the smoke test with the helper running (container → `host.docker.internal:8766` works on Docker Desktop).
@@ -61,12 +64,11 @@ Read this first when resuming work on this project.
   - Archiving 2024 + 2025 frees only 85 slots.
 
 ## Open ideas / backlog
-- "Created before <date>" cutoff selector in the UI (to include early-2026 notebooks).
 - Optional scheduled runs (e.g. monthly: archive notebooks older than N months).
 - Upstream: report the `login` landing-page false positive to notebooklm-py.
 - Optionally save original-file metadata for uploaded PDFs (the originals themselves are not retrievable from NotebookLM).
 - Durable NotebookLM credential so no human sign-in is ever needed (master token / Firefox cookies / `NOTEBOOKLM_REFRESH_CMD`): deliberately NOT done, security trade-off, owner has not decided (ADR-010 "Not done").
 - Verify on the next long run whether waiting for the `PSIDRTS` cookies at login prevents the ~2 h revocation.
-- The 2024-2025 set is fully archived and deleted (checked 2026-10-12: 85 DELETED, 0 left for those years, 413 notebooks present of 500). Freeing more slots needs the "created before <date>" cutoff selector above, then the owner pressing **Archive & delete** (the agent never starts deleting runs on its own).
+- Freeing more slots from 2026 can now be done via the date cutoff selector (e.g. before March 2026), then the owner pressing **Archive & delete** (the agent never starts deleting runs on its own).
 - Housekeeping not done: switch the commit email to the GitHub noreply address; upload the banner as the repo social preview (manual, GitHub settings).
 - `scripts/helper.ps1 start` launches the helper through WMI so it survives the caller and never blocks captured output; keep that if you touch the launcher.

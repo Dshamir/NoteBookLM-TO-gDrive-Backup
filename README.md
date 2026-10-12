@@ -19,7 +19,7 @@
   <img src="docs/assets/badges/bash.svg" alt="Bash">
   <img src="docs/assets/badges/powershell.svg" alt="PowerShell">
   <img src="docs/assets/badges/uv.svg" alt="uv">
-  <img src="docs/assets/badges/pytest-27-passing.svg" alt="pytest 27 passing">
+  <img src="docs/assets/badges/pytest-73-passing.svg" alt="pytest 73 passing">
   <img src="docs/assets/badges/windows-11.svg" alt="Windows 11">
   <img src="docs/assets/badges/mit-license.svg" alt="MIT license">
   <img src="docs/assets/badges/version-1-0-0.svg" alt="version 1.0.0">
@@ -37,11 +37,19 @@ Runs locally in **Docker** with a sleek **Web UI** for selecting notebooks and m
 ---
 
 ## 📸 Web UI Dashboard
-*(Manage backups, monitor cloud uploads, and seamlessly delete old notebooks)*
+*(Manage backups, switch between Table & Grid views, filter by year/month/topic, inspect notebook contents, and safely archive to Drive)*
 
 <p align="center">
-  <img src="docs/assets/webui_screenshot.png" alt="nlm2drive Web UI Dashboard" width="100%">
+  <img src="docs/assets/grid_view.png" alt="nlm2drive Web UI Grid View & Advanced Filters" width="100%">
 </p>
+
+### ✨ UI Features
+- 🗂️ **Grid & Table Views**: Seamlessly switch between a compact tabular view and visual card tiles with generative cover art.
+- 🎨 **Generative Cover Art Thumbnails**: Deterministic mesh gradients paired with custom floating 3D emoji badges and status indicators.
+- 🔎 **Multi-Dimensional Search**: Dynamic Year chips with live counts, Month selector (`Jan`–`Dec`), and auto-clustered Topic chips.
+- 📅 **Date Cutoff Batch Selection**: Select and batch archive notebooks created before any specified date (e.g. freeing early 2026 slots).
+- 🔍 **In-App Notebook Inspector**: 1-click modal viewing full metadata, verification status, file breakdowns, and studio artifact counts.
+- ↗️ **Direct Links**: One-click opening of the live notebook in NotebookLM (`↗ Live`) or Google Drive (`📁 Drive`).
 
 ---
 

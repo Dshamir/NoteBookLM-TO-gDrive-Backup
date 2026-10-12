@@ -9,6 +9,18 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
   - API `GET /api/reconnect/status`, `POST /api/reconnect`, `POST /api/reconnect/cancel` (cross-site `Origin` refused; 409 while a run holds a working session; 503 with instructions when no helper).
   - 30 new tests (72 total) run the real helper in-process with a fake sign-in command (security, lifecycle, timeouts, cancel races, API integration).
   - Hardening from the adversarial review: Cancel that races the process start, stalled-client socket timeout, oversized bodies, no traceback spam on dropped connections, and `/api/run` / `/api/test-e2e` refuse (409) while a sign-in is rewriting the cookie file.
+- **Grid View & Cards Layout**:
+  - Layout toggle in toolbar (Table ↔ Grid) with preference remembered in `localStorage`.
+  - Generative aesthetic cover art thumbnails: deterministic mesh gradients, floating frosted-glass 3D emoji badges, status indicators, and sources/year pills.
+  - Quick action links on each card: direct open in NotebookLM (`↗ Live`), Google Drive (`📁 Drive`), and in-app inspector (`🔍 Inspect`).
+- **Enhanced Search, Dynamic Filters & Date Cutoff**:
+  - Dynamic Year chips displaying live notebook counts for every year present (e.g., `2026 (413)`, `2025 (81)`).
+  - Month filter selector (`01 · Jan` through `12 · Dec`) to easily narrow down notebooks by creation month.
+  - Automatic Topic extraction: top topics and clusters generated from notebook titles with quick-filter chips (`Guide`, `Architecture`, `Intelligence`, `Design`, etc.).
+  - Date Cutoff selector and API endpoint (`POST /api/notebooks/select-cutoff`): select all owned notebooks created on or before a specified date for batch processing.
+- **In-App Notebook Inspector Modal**:
+  - Detailed popup dialog showing full notebook metadata, created & updated timestamps, ownership, Drive verification completeness, total size, file count, and exported studio artifacts / chat statistics.
+  - Copy notebook ID button and direct external links to NotebookLM and Google Drive.
 - Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`.
 ### Fixed
 - `.\nlm2drive helper start` (and `up`) no longer blocks callers that capture its output, and the helper is no longer killed when the calling terminal/CI step/agent task ends: it is launched through WMI (`Win32_Process.Create`) with `cmd` doing the log redirection, instead of `Start-Process -RedirectStandard*`.

@@ -12,11 +12,36 @@
     counts: {},
     status: {},
     deletePhrase: "DELETE AFTER BACKUP",
-    filters: { year: "all", status: "all", q: "" },
+    filters: { year: "all", month: "all", status: "all", topic: "all", q: "" },
     sort: { key: "created_at", dir: "desc" },
+    view: localStorage.getItem("nlm2drive_view") || "table",
     flash: new Set(),
     renderQueued: false,
   };
+
+  const COVER_GRADIENTS = [
+    "linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)",
+    "linear-gradient(135deg, #0e7490 0%, #10b981 100%)",
+    "linear-gradient(135deg, #7c2d12 0%, #db2777 100%)",
+    "linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%)",
+    "linear-gradient(135deg, #312e81 0%, #0d9488 100%)",
+    "linear-gradient(135deg, #831843 0%, #6366f1 100%)",
+    "linear-gradient(135deg, #1e293b 0%, #334155 100%)",
+    "linear-gradient(135deg, #14532d 0%, #0f766e 100%)",
+    "linear-gradient(135deg, #581c87 0%, #ec4899 100%)",
+    "linear-gradient(135deg, #1e3a8a 0%, #38bdf8 100%)",
+  ];
+
+  function hashStr(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
+  function getCoverGradient(id, title) {
+    const idx = hashStr((id || "") + (title || "")) % COVER_GRADIENTS.length;
+    return COVER_GRADIENTS[idx];
+  }
 
   const ACTIVE = new Set(["EXPORTING", "EXPORTED", "UPLOADING", "UPLOADED", "DELETING"]);
   const LABEL = {
@@ -104,6 +129,8 @@
   async function loadNotebooks() {
     const rows = await api("/api/notebooks");
     state.notebooks = new Map(rows.map((r) => [r.id, r]));
+    updateYearChips();
+    updateTopicChips();
     renderTable();
   }
 
@@ -311,14 +338,95 @@
     if (prev && prev !== "idle" && st.state === "idle") { loadRuns(); loadSummary(); }
   }
 
+  function updateYearChips() {
+    const yearCounts = new Map();
+    let total = 0;
+    for (const r of state.notebooks.values()) {
+      if (r.present || r.stage === "DELETED" || r.stage === "CLOUD_VERIFIED") {
+        total++;
+        const y = r.year ? String(r.year) : "other";
+        yearCounts.set(y, (yearCounts.get(y) || 0) + 1);
+      }
+    }
+    const years = Array.from(yearCounts.keys()).sort((a, b) => {
+      if (a === "other") return 1;
+      if (b === "other") return -1;
+      return Number(b) - Number(a);
+    });
+    const container = $("#year-chips");
+    if (!container) return;
+    const activeYear = state.filters.year || "all";
+    let html = `<button class="chip ${activeYear === "all" ? "active" : ""}" data-year="all">All years <small>(${total})</small></button>`;
+    for (const y of years) {
+      const label = y === "other" ? "Other" : y;
+      html += `<button class="chip ${activeYear === y ? "active" : ""}" data-year="${esc(y)}">${esc(label)} <small>(${yearCounts.get(y)})</small></button>`;
+    }
+    container.innerHTML = html;
+    $$("#year-chips .chip").forEach((c) => {
+      c.onclick = () => {
+        $$("#year-chips .chip").forEach((x) => x.classList.remove("active"));
+        c.classList.add("active");
+        state.filters.year = c.dataset.year;
+        renderTable();
+      };
+    });
+  }
+
+  function updateTopicChips() {
+    const counts = new Map();
+    const stopWords = new Set(["and", "the", "for", "with", "from", "this", "that", "into", "about", "project", "overview", "notes", "summary", "draft", "part"]);
+    for (const r of state.notebooks.values()) {
+      if (!r.title) continue;
+      const words = r.title.match(/[A-Za-z]{3,}/g) || [];
+      for (const w of words) {
+        const lw = w.toLowerCase();
+        if (!stopWords.has(lw)) {
+          counts.set(lw, (counts.get(lw) || 0) + 1);
+        }
+      }
+    }
+    const sorted = Array.from(counts.entries())
+      .filter(([, n]) => n >= 3)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+
+    const container = $("#topic-chips");
+    if (!container) return;
+    const activeTopic = state.filters.topic || "all";
+    let html = `<button class="chip ${activeTopic === "all" ? "active" : ""}" data-topic="all">All topics</button>`;
+    for (const [w, n] of sorted) {
+      const capitalized = w.charAt(0).toUpperCase() + w.slice(1);
+      html += `<button class="chip ${activeTopic === w ? "active" : ""}" data-topic="${esc(w)}">${esc(capitalized)} <small>(${n})</small></button>`;
+    }
+    container.innerHTML = html;
+    $$("#topic-chips .chip").forEach((c) => {
+      c.onclick = () => {
+        $$("#topic-chips .chip").forEach((x) => x.classList.remove("active"));
+        c.classList.add("active");
+        state.filters.topic = c.dataset.topic;
+        renderTable();
+      };
+    });
+  }
+
   function filtered() {
-    const { year, status, q } = state.filters;
+    const { year, month, status, topic, q } = state.filters;
     const qq = q.trim().toLowerCase();
     let rows = Array.from(state.notebooks.values()).filter((r) => r.present || r.stage === "DELETED" || r.stage === "CLOUD_VERIFIED");
-    if (year === "2024" || year === "2025") rows = rows.filter((r) => String(r.year) === year);
-    else if (year === "other") rows = rows.filter((r) => r.year !== 2024 && r.year !== 2025);
+    if (year !== "all") {
+      if (year === "other") rows = rows.filter((r) => !r.year || (r.year !== 2024 && r.year !== 2025 && r.year !== 2026));
+      else rows = rows.filter((r) => String(r.year) === year);
+    }
+    if (month && month !== "all") {
+      rows = rows.filter((r) => (r.created_at || "").slice(5, 7) === month);
+    }
     if (status !== "all") rows = rows.filter((r) => category(r) === status);
-    if (qq) rows = rows.filter((r) => (r.title || "").toLowerCase().includes(qq));
+    if (topic && topic !== "all") {
+      rows = rows.filter((r) => (r.title || "").toLowerCase().includes(topic.toLowerCase()));
+    }
+    if (qq) {
+      rows = rows.filter((r) => (r.title || "").toLowerCase().includes(qq) || (r.id || "").toLowerCase().includes(qq));
+    }
     const { key, dir } = state.sort;
     const m = dir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
@@ -332,12 +440,14 @@
     const locked = !r.is_owner || r.stage === "DELETED" || !r.present;
     const cls = [r.selected && !locked ? "sel" : "", locked ? "locked" : "", state.flash.has(r.id) ? "flash" : ""].join(" ");
     const actions = [];
+    actions.push(`<a class="icon-btn" href="https://notebooklm.google.com/notebook/${esc(r.id)}" target="_blank" rel="noopener" title="Open in NotebookLM"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg></a>`);
     if (r.drive_folder_id) actions.push(`<a class="icon-btn" id="open-${esc(r.id)}" href="https://drive.google.com/drive/folders/${esc(r.drive_folder_id)}" target="_blank" rel="noopener" title="Open archive folder in Drive"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>`);
+    actions.push(`<button class="icon-btn" data-view="${esc(r.id)}" title="Inspect details"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>`);
     if (r.stage === "FAILED" && r.is_owner) actions.push(`<button class="icon-btn" data-retry="${esc(r.id)}" id="retry-${esc(r.id)}" title="Retry in next run"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>`);
     const err = r.error && r.stage !== "DELETED" ? `<div class="nb-err" title="${esc(r.error)}">${esc(r.error)}</div>` : "";
     return `<tr class="${cls}" data-id="${esc(r.id)}">
       <td><input type="checkbox" data-sel="${esc(r.id)}" id="sel-${esc(r.id)}" ${r.selected && !locked ? "checked" : ""} ${locked ? "disabled" : ""} aria-label="Select ${esc(r.title)}"></td>
-      <td><div class="nb-title"><span class="nb-emoji">${esc(r.emoji || "📓")}</span><div style="min-width:0"><div class="nb-name" title="${esc(r.title)}">${esc(r.title)}</div>${err}</div></div></td>
+      <td><div class="nb-title"><span class="nb-emoji" role="button" data-view="${esc(r.id)}" style="cursor:pointer;" title="Inspect details">${esc(r.emoji || "📓")}</span><div style="min-width:0"><div class="nb-name" role="button" data-view="${esc(r.id)}" style="cursor:pointer;" title="${esc(r.title)}">${esc(r.title)}</div>${err}</div></div></td>
       <td class="mono">${fmtDate(r.created_at)}</td>
       <td class="num">${r.sources_count ?? "–"}</td>
       <td>${stageChip(r)}</td>
@@ -345,12 +455,146 @@
       <td><div class="row-actions">${actions.join("")}</div></td></tr>`;
   }
 
+  function cardHtml(r) {
+    const locked = !r.is_owner || r.stage === "DELETED" || !r.present;
+    const cls = [
+      "nb-card",
+      r.selected && !locked ? "sel" : "",
+      locked ? "locked" : "",
+      state.flash.has(r.id) ? "flash" : "",
+    ].filter(Boolean).join(" ");
+
+    const grad = getCoverGradient(r.id, r.title);
+    const err = r.error && r.stage !== "DELETED" ? `<div class="card-error" title="${esc(r.error)}">${esc(r.error)}</div>` : "";
+    const driveLink = r.drive_folder_id ? `<a class="card-btn" href="https://drive.google.com/drive/folders/${esc(r.drive_folder_id)}" target="_blank" rel="noopener" title="Open archive folder in Google Drive"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span>Drive</span></a>` : "";
+    const nlmLink = `<a class="card-btn" href="https://notebooklm.google.com/notebook/${esc(r.id)}" target="_blank" rel="noopener" title="Open notebook in NotebookLM"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg><span>Live</span></a>`;
+    const retryBtn = r.stage === "FAILED" && r.is_owner ? `<button class="card-btn" data-retry="${esc(r.id)}" title="Retry in next run"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg><span>Retry</span></button>` : "";
+
+    return `<article class="${cls}" data-id="${esc(r.id)}">
+      <div class="card-thumb" style="background-image: ${grad}">
+        <div class="card-check">
+          <input type="checkbox" data-sel="${esc(r.id)}" id="grid-sel-${esc(r.id)}" ${r.selected && !locked ? "checked" : ""} ${locked ? "disabled" : ""} aria-label="Select ${esc(r.title)}">
+        </div>
+        <div class="card-status-badge">${stageChip(r)}</div>
+        <div class="card-emoji-hero" role="button" data-view="${esc(r.id)}" style="cursor:pointer;" title="Inspect details">${esc(r.emoji || "📓")}</div>
+        <span class="card-year-pill">${r.year || fmtDate(r.created_at).slice(0, 4)}</span>
+        <span class="card-sources-pill" title="${r.sources_count ?? 0} sources">📚 ${r.sources_count ?? 0}</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title" role="button" data-view="${esc(r.id)}" title="${esc(r.title)}">${esc(r.title)}</div>
+        ${err}
+        <div class="card-meta-row">
+          <span class="mono">${fmtDate(r.created_at)}</span>
+          <span class="mono">${r.bytes ? bytes(r.bytes) : (r.files ? `${r.files} files` : "–")}</span>
+        </div>
+      </div>
+      <div class="card-footer">
+        <button class="card-btn" data-view="${esc(r.id)}" title="Inspect notebook details">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span>Inspect</span>
+        </button>
+        <div class="card-footer-actions">
+          ${nlmLink}
+          ${driveLink}
+          ${retryBtn}
+        </div>
+      </div>
+    </article>`;
+  }
+
+  function openNotebookModal(r) {
+    if (!r) return;
+    const body = $("#modal-nb-body");
+    const driveLink = r.drive_folder_id
+      ? `<a class="btn btn-sm btn-primary" href="https://drive.google.com/drive/folders/${esc(r.drive_folder_id)}" target="_blank" rel="noopener">Open in Google Drive ↗</a>`
+      : "";
+    const nlmLink = `<a class="btn btn-sm" href="https://notebooklm.google.com/notebook/${esc(r.id)}" target="_blank" rel="noopener">Open in NotebookLM ↗</a>`;
+    const st = r.stats || {};
+    const artCount = st.artifacts ? Object.keys(st.artifacts).length : 0;
+    const errBlock = r.error ? `<div class="card-error" style="margin-top:10px;">${esc(r.error)}</div>` : "";
+
+    body.innerHTML = `
+      <div class="nb-detail-head">
+        <div class="nb-detail-emoji">${esc(r.emoji || "📓")}</div>
+        <div class="nb-detail-info">
+          <div class="nb-detail-title">${esc(r.title)}</div>
+          <div class="nb-detail-id">
+            <span>ID: ${esc(r.id)}</span>
+            <button class="icon-btn" style="width:20px;height:20px;" id="btn-copy-id" title="Copy ID"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+          </div>
+          <div class="nb-detail-actions">
+            ${nlmLink}
+            ${driveLink}
+          </div>
+        </div>
+      </div>
+
+      ${errBlock}
+
+      <div class="nb-detail-grid">
+        <div class="nb-detail-section">
+          <h4>Overview</h4>
+          <div class="detail-row"><span class="detail-k">Status</span><span class="detail-v">${stageChip(r)}</span></div>
+          <div class="detail-row"><span class="detail-k">Created</span><span class="detail-v mono">${r.created_at ? esc(r.created_at.slice(0, 16).replace("T", " ")) + " UTC" : "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Last Seen</span><span class="detail-v mono">${r.last_seen_at ? esc(r.last_seen_at.slice(0, 16).replace("T", " ")) + " UTC" : "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Ownership</span><span class="detail-v">${r.is_owner ? "Owner" : "Shared"}</span></div>
+          <div class="detail-row"><span class="detail-k">Sources Count</span><span class="detail-v">${r.sources_count ?? "–"}</span></div>
+        </div>
+
+        <div class="nb-detail-section">
+          <h4>Archive &amp; Drive Storage</h4>
+          <div class="detail-row"><span class="detail-k">Drive Verified</span><span class="detail-v">${r.complete ? "Yes (MD5 verified)" : (r.drive_folder_id ? "Pending check" : "Not archived")}</span></div>
+          <div class="detail-row"><span class="detail-k">Total Size</span><span class="detail-v mono">${r.bytes ? bytes(r.bytes) : "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Files Archived</span><span class="detail-v mono">${r.files || "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Folder Name</span><span class="detail-v mono" style="font-size:11px;">${r.folder ? esc(r.folder) : "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Attempts</span><span class="detail-v">${r.attempts || 0}</span></div>
+        </div>
+
+        <div class="nb-detail-section" style="grid-column: span 2;">
+          <h4>Content &amp; Studio Artifacts</h4>
+          <div class="detail-row"><span class="detail-k">Sources Exported</span><span class="detail-v">${st.sources ?? "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Notes Exported</span><span class="detail-v">${st.notes ?? "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Mind Maps</span><span class="detail-v">${st.mind_maps ?? "–"}</span></div>
+          <div class="detail-row"><span class="detail-k">Studio Artifacts</span><span class="detail-v">${artCount} items</span></div>
+          <div class="detail-row"><span class="detail-k">Chat Turns</span><span class="detail-v">${st.chat_turns ?? "–"}</span></div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="btn-nb-detail-close">Close</button>
+      </div>
+    `;
+
+    $("#btn-nb-detail-close").onclick = () => $("#modal-nb-detail").close();
+    const copyBtn = $("#btn-copy-id");
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(r.id);
+        toast("Notebook ID copied", "ok", 2000);
+      };
+    }
+
+    $("#modal-nb-detail").showModal();
+  }
+
   function renderTable() {
     state.renderQueued = false;
     const rows = filtered();
-    $("#nb-body").innerHTML = rows.map(rowHtml).join("");
+    const isGrid = state.view === "grid";
+
+    $("#nb-table").classList.toggle("hidden", isGrid);
+    $("#nb-grid").classList.toggle("hidden", !isGrid);
+    $("#btn-view-table").classList.toggle("active", !isGrid);
+    $("#btn-view-grid").classList.toggle("active", isGrid);
+
+    if (isGrid) {
+      $("#nb-grid").innerHTML = rows.map(cardHtml).join("");
+    } else {
+      $("#nb-body").innerHTML = rows.map(rowHtml).join("");
+    }
+
     $("#nb-count").textContent = rows.length;
-    $("#nb-empty").classList.toggle("hidden", state.notebooks.size > 0);
+    $("#nb-empty").classList.toggle("hidden", rows.length > 0);
     const selectable = rows.filter((r) => r.is_owner && r.present && r.stage !== "DELETED");
     const all = $("#chk-all");
     all.checked = selectable.length > 0 && selectable.every((r) => r.selected);
@@ -366,12 +610,18 @@
   }
 
   function recount() {
-    let sel = 0, present = 0, y24 = 0, y25 = 0, del = 0;
+    let sel = 0, present = 0, y24 = 0, y25 = 0, y26 = 0, del = 0;
     for (const r of state.notebooks.values()) {
-      if (r.present) { present++; if (r.selected) sel++; if (r.year === 2024) y24++; if (r.year === 2025) y25++; }
+      if (r.present) {
+        present++;
+        if (r.selected) sel++;
+        if (r.year === 2024) y24++;
+        if (r.year === 2025) y25++;
+        if (r.year === 2026) y26++;
+      }
       if (r.stage === "DELETED") del++;
     }
-    state.counts = { ...state.counts, present, selected: sel, y2024: y24, y2025: y25, by_stage: { ...(state.counts.by_stage || {}), DELETED: del } };
+    state.counts = { ...state.counts, present, selected: sel, y2024: y24, y2025: y25, y2026: y26, by_stage: { ...(state.counts.by_stage || {}), DELETED: del } };
     renderCapacity(state.settings.notebook_limit || 500);
   }
 
@@ -488,7 +738,46 @@
     $("#link-drive-guide").onclick = (e) => { e.preventDefault(); $("#modal-guide").showModal(); };
     $("#btn-guide-close").onclick = () => $("#modal-guide").close();
 
-    // table
+    // view layout toggle
+    $("#btn-view-table").onclick = () => {
+      state.view = "table";
+      localStorage.setItem("nlm2drive_view", "table");
+      renderTable();
+    };
+    $("#btn-view-grid").onclick = () => {
+      state.view = "grid";
+      localStorage.setItem("nlm2drive_view", "grid");
+      renderTable();
+    };
+
+    // month selector
+    $("#sel-month").onchange = (e) => {
+      state.filters.month = e.target.value;
+      renderTable();
+    };
+
+    // date cutoff selector
+    $("#btn-sel-cutoff").onclick = async () => {
+      const val = $("#input-cutoff").value;
+      if (!val) { toast("Choose a cutoff date first", "warn"); return; }
+      try {
+        await api("/api/notebooks/select-cutoff", { body: { before: val, only: true } });
+        await loadNotebooks();
+        toast(`Selected notebooks created on or before ${val}`, "ok");
+      } catch (e) { toast(e.message, "error"); }
+    };
+
+    // table & grid events
+    const handleViewClick = (e) => {
+      const el = e.target.closest("[data-view]");
+      if (el) {
+        const nb = state.notebooks.get(el.dataset.view);
+        if (nb) openNotebookModal(nb);
+      }
+    };
+    $("#nb-body").addEventListener("click", handleViewClick);
+    $("#nb-grid").addEventListener("click", handleViewClick);
+
     $("#nb-body").addEventListener("change", (e) => { const id = e.target.dataset.sel; if (id) select([id], e.target.checked); });
     $("#nb-body").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-retry]");
@@ -496,6 +785,15 @@
       try { await api(`/api/notebooks/${encodeURIComponent(b.dataset.retry)}/retry`, { body: {} }); await loadNotebooks(); toast("Queued for the next run", "ok"); }
       catch (er) { toast(er.message, "error"); }
     });
+
+    $("#nb-grid").addEventListener("change", (e) => { const id = e.target.dataset.sel; if (id) select([id], e.target.checked); });
+    $("#nb-grid").addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-retry]");
+      if (!b) return;
+      try { await api(`/api/notebooks/${encodeURIComponent(b.dataset.retry)}/retry`, { body: {} }); await loadNotebooks(); toast("Queued for the next run", "ok"); }
+      catch (er) { toast(er.message, "error"); }
+    });
+
     $("#chk-all").onchange = (e) => select(filtered().filter((r) => r.is_owner && r.present && r.stage !== "DELETED").map((r) => r.id), e.target.checked);
     $("#btn-sel-visible").onclick = () => select(filtered().filter((r) => r.is_owner && r.present && r.stage !== "DELETED").map((r) => r.id), true);
     $("#btn-unsel-visible").onclick = () => select(filtered().map((r) => r.id), false);

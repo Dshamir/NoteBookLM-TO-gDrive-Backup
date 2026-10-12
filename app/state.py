@@ -153,6 +153,21 @@ class StateDB:
                     f"UPDATE notebooks SET selected=1 WHERE is_owner=1 AND present=1 AND year IN ({marks})",
                     tuple(years))
 
+    def select_cutoff(self, before_iso: str, only: bool = True) -> None:
+        """Select owned, present notebooks created on or before `before_iso` (e.g. '2026-03-01')."""
+        prefix = before_iso.strip()[:10]
+        if not prefix:
+            return
+        with self._lock:
+            if only:
+                self._conn.execute("UPDATE notebooks SET selected=0")
+            self._conn.execute(
+                """UPDATE notebooks SET selected=1
+                   WHERE is_owner=1 AND present=1 AND created_at IS NOT NULL
+                   AND SUBSTR(created_at, 1, 10) <= ?""",
+                (prefix,),
+            )
+
     def update(self, nb_id: str, **cols) -> None:
         if not cols:
             return
@@ -221,10 +236,13 @@ class StateDB:
                  SUM(CASE WHEN selected=1 AND present=1 THEN 1 ELSE 0 END) selected,
                  SUM(CASE WHEN year=2024 AND present=1 THEN 1 ELSE 0 END) y2024,
                  SUM(CASE WHEN year=2025 AND present=1 THEN 1 ELSE 0 END) y2025,
+                 SUM(CASE WHEN year=2026 AND present=1 THEN 1 ELSE 0 END) y2026,
                  SUM(CASE WHEN stage='DELETED' THEN bytes ELSE 0 END) bytes_archived_deleted,
                  SUM(bytes) bytes_total
                FROM notebooks""")[0]
-        return {"by_stage": by_stage, **{k: (v or 0) for k, v in tot.items()}}
+        year_rows = self._q("SELECT year, COUNT(*) n FROM notebooks WHERE present=1 GROUP BY year")
+        by_year = {str(r["year"]): r["n"] for r in year_rows if r.get("year") is not None}
+        return {"by_stage": by_stage, "by_year": by_year, **{k: (v or 0) for k, v in tot.items()}}
 
     # -- runs / events -------------------------------------------------------
     def start_run(self, options: dict) -> int:

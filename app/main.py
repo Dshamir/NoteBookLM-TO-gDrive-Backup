@@ -69,6 +69,11 @@ class YearsBody(BaseModel):
     only: bool = True
 
 
+class CutoffBody(BaseModel):
+    before: str
+    only: bool = True
+
+
 class RunBody(BaseModel):
     dry_run: bool = False
     delete: bool | None = None
@@ -167,6 +172,12 @@ async def select(body: SelectBody):
 @app.post("/api/notebooks/select-years")
 async def select_years(body: YearsBody):
     db.select_years(body.years, body.only)
+    return {"ok": True}
+
+
+@app.post("/api/notebooks/select-cutoff")
+async def select_cutoff(body: CutoffBody):
+    db.select_cutoff(body.before, body.only)
     return {"ok": True}
 
 

@@ -58,3 +58,24 @@ def test_state_selection_rules(tmp_path):
     # a notebook that vanished from the account is marked not present
     db.upsert_listing(items[:1], [2024, 2025])
     assert db.get("own23")["present"] == 0 and db.get("own24")["present"] == 1
+
+
+def test_select_cutoff(tmp_path):
+    db = StateDB(tmp_path / "s.sqlite")
+    items = [
+        {"id": "nb1", "title": "Jan 2026", "created_at": "2026-01-15T10:00:00+00:00", "year": 2026, "is_owner": True},
+        {"id": "nb2", "title": "Mar 2026", "created_at": "2026-03-20T10:00:00+00:00", "year": 2026, "is_owner": True},
+        {"id": "nb3", "title": "Apr 2026 (shared)", "created_at": "2026-01-10T10:00:00+00:00", "year": 2026, "is_owner": False},
+        {"id": "nb4", "title": "Jun 2026", "created_at": "2026-06-01T10:00:00+00:00", "year": 2026, "is_owner": True},
+    ]
+    db.upsert_listing(items, [])
+    # Initially none selected
+    assert not any(r["selected"] for r in db.list_notebooks())
+    # Cutoff at 2026-03-01 should select only nb1 (nb3 is shared so never selected)
+    db.select_cutoff("2026-03-01", only=True)
+    sel = {r["id"] for r in db.list_notebooks() if r["selected"]}
+    assert sel == {"nb1"}
+    # Cutoff at 2026-04-01 should select nb1 and nb2
+    db.select_cutoff("2026-04-01", only=True)
+    sel = {r["id"] for r in db.list_notebooks() if r["selected"]}
+    assert sel == {"nb1", "nb2"}

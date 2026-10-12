@@ -205,13 +205,46 @@
     <!-- ============ Notebooks ============ -->
     <section class="glass table-panel" id="notebooks-panel" aria-label="Notebooks">
       <div class="table-toolbar">
-        <h2>Notebooks <span class="count-badge" id="nb-count">0</span></h2>
+        <div class="toolbar-title-wrap">
+          <h2>Notebooks <span class="count-badge" id="nb-count">0</span></h2>
+          <div class="view-toggle" role="group" aria-label="View layout">
+            <button class="btn btn-sm btn-icon active" id="btn-view-table" title="Table view" aria-label="Table view">
+              <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              <span>Table</span>
+            </button>
+            <button class="btn btn-sm btn-icon" id="btn-view-grid" title="Grid view" aria-label="Grid view">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+              <span>Grid</span>
+            </button>
+          </div>
+        </div>
+
         <div class="chips" id="year-chips" role="group" aria-label="Year filter">
           <button class="chip active" data-year="all" id="chip-year-all">All years</button>
-          <button class="chip" data-year="2024" id="chip-year-2024">2024</button>
+          <button class="chip" data-year="2026" id="chip-year-2026">2026</button>
           <button class="chip" data-year="2025" id="chip-year-2025">2025</button>
+          <button class="chip" data-year="2024" id="chip-year-2024">2024</button>
           <button class="chip" data-year="other" id="chip-year-other">Other</button>
         </div>
+
+        <div class="filter-group">
+          <select id="sel-month" class="filter-select" aria-label="Filter by month">
+            <option value="all">All months</option>
+            <option value="01">01 · Jan</option>
+            <option value="02">02 · Feb</option>
+            <option value="03">03 · Mar</option>
+            <option value="04">04 · Apr</option>
+            <option value="05">05 · May</option>
+            <option value="06">06 · Jun</option>
+            <option value="07">07 · Jul</option>
+            <option value="08">08 · Aug</option>
+            <option value="09">09 · Sep</option>
+            <option value="10">10 · Oct</option>
+            <option value="11">11 · Nov</option>
+            <option value="12">12 · Dec</option>
+          </select>
+        </div>
+
         <div class="chips" id="status-chips" role="group" aria-label="Status filter">
           <button class="chip active" data-status="all" id="chip-st-all">Any status</button>
           <button class="chip" data-status="pending" id="chip-st-pending">Pending</button>
@@ -221,16 +254,31 @@
           <button class="chip" data-status="failed" id="chip-st-failed">Failed</button>
           <button class="chip" data-status="shared" id="chip-st-shared">Shared</button>
         </div>
+
         <div class="search">
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input type="search" id="input-search" placeholder="Search titles…">
+          <input type="search" id="input-search" placeholder="Search titles, topics, IDs…">
         </div>
       </div>
+
+      <div class="topic-bar" id="topic-bar">
+        <span class="topic-label">Topics:</span>
+        <div class="chips topic-chips" id="topic-chips" role="group" aria-label="Topic filter">
+          <button class="chip active" data-topic="all">All topics</button>
+        </div>
+      </div>
+
       <div class="bulk-bar">
         <button class="btn btn-sm btn-ghost" id="btn-sel-years">Select all 2024 + 2025</button>
+        <div class="cutoff-group">
+          <label for="input-cutoff" class="cutoff-label">Before</label>
+          <input type="date" id="input-cutoff" class="input-date" aria-label="Cutoff date">
+          <button class="btn btn-sm btn-ghost" id="btn-sel-cutoff" title="Select owned notebooks created on or before this date">Select before date</button>
+        </div>
         <button class="btn btn-sm btn-ghost" id="btn-sel-visible">Select visible</button>
         <button class="btn btn-sm btn-ghost" id="btn-unsel-visible">Clear visible</button>
       </div>
+
       <div class="table-wrap">
         <table class="nb-table" id="nb-table">
           <thead>
@@ -246,9 +294,10 @@
           </thead>
           <tbody id="nb-body"></tbody>
         </table>
+        <div class="nb-grid hidden" id="nb-grid" role="region" aria-label="Notebooks grid"></div>
         <div class="empty hidden" id="nb-empty">
           <div class="empty-art" aria-hidden="true"></div>
-          <p>No notebooks yet. Connect NotebookLM and press <b>Refresh list</b>.</p>
+          <p>No notebooks found matching current filters.</p>
         </div>
       </div>
     </section>
@@ -312,6 +361,13 @@
         <li>Upload that file with the <b>credentials.json</b> button, then press <b>Connect</b>. On the “Google hasn't verified this app” screen choose <b>Advanced → Go to nlm2drive</b> (it is your own app).</li>
       </ol>
       <div class="modal-actions"><button class="btn btn-primary" id="btn-guide-close">Got it</button></div>
+    </div>
+  </dialog>
+
+  <!-- ============ Notebook details modal ============ -->
+  <dialog class="modal glass wide" id="modal-nb-detail">
+    <div class="modal-body" id="modal-nb-body">
+      <!-- Populated dynamically by app.js -->
     </div>
   </dialog>
 
