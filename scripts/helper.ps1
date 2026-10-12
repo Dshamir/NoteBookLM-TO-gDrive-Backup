@@ -62,8 +62,20 @@ switch ($Action) {
     $argList = @("run", "--no-project", "--quiet", "--python", "3.12", "python", "`"$helperPy`"",
                  "--data-dir", "`"$nlmDir`"", "--port", "$Port", "--browser", $Browser)
     if ($Version) { $argList += @("--version", $Version) }
-    Start-Process -FilePath $uv -ArgumentList $argList -WindowStyle Hidden `
-      -RedirectStandardOutput (Join-Path $logs "helper.log") -RedirectStandardError (Join-Path $logs "helper.err.log") | Out-Null
+    # NOT Start-Process -RedirectStandard*: that makes the child inherit our stdout pipe, so anything that captures
+    # this script's output (nlm2drive up | ..., CI, an agent) would wait until the helper exits. cmd does the file
+    # redirection itself. It is launched through WMI (Win32_Process.Create): the helper then inherits no handles and
+    # lives outside our process tree / job object, so it also survives the caller (a terminal, a CI step, an agent
+    # task) being torn down. Start-Process is only the fallback if WMI is unavailable.
+    $out = Join-Path $logs "helper.log"
+    $err = Join-Path $logs "helper.err.log"
+    $inner = "`"$uv`" " + ($argList -join " ") + " > `"$out`" 2> `"$err`""
+    $cmdLine = "cmd.exe /c `"$inner`""
+    $created = $null
+    try { $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmdLine; CurrentDirectory = (Split-Path $PSScriptRoot) } -ErrorAction Stop } catch { }
+    if (-not $created -or $created.ReturnValue -ne 0) {
+      Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "`"$inner`"") -WindowStyle Hidden | Out-Null
+    }
     for ($i = 0; $i -lt 40; $i++) {   # first run may download Python 3.12 once
       Start-Sleep -Milliseconds 500
       if (Test-Helper) { Write-Host "Reconnect helper started (127.0.0.1:$Port)."; exit 0 }

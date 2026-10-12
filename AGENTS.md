@@ -67,4 +67,6 @@ Read this first when resuming work on this project.
 - Optionally save original-file metadata for uploaded PDFs (the originals themselves are not retrievable from NotebookLM).
 - Durable NotebookLM credential so no human sign-in is ever needed (master token / Firefox cookies / `NOTEBOOKLM_REFRESH_CMD`): deliberately NOT done, security trade-off, owner has not decided (ADR-010 "Not done").
 - Verify on the next long run whether waiting for the `PSIDRTS` cookies at login prevents the ~2 h revocation.
-- Remaining ~11 notebooks of the 2024-2025 set await the owner pressing **Archive & delete** (the agent never starts deleting runs on its own).
+- The 2024-2025 set is fully archived and deleted (checked 2026-10-12: 85 DELETED, 0 left for those years, 413 notebooks present of 500). Freeing more slots needs the "created before <date>" cutoff selector above, then the owner pressing **Archive & delete** (the agent never starts deleting runs on its own).
+- Housekeeping not done: switch the commit email to the GitHub noreply address; upload the banner as the repo social preview (manual, GitHub settings).
+- `scripts/helper.ps1 start` launches the helper through WMI so it survives the caller and never blocks captured output; keep that if you touch the launcher.

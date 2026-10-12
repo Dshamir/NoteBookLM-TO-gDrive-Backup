@@ -10,6 +10,8 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
   - 30 new tests (72 total) run the real helper in-process with a fake sign-in command (security, lifecycle, timeouts, cancel races, API integration).
   - Hardening from the adversarial review: Cancel that races the process start, stalled-client socket timeout, oversized bodies, no traceback spam on dropped connections, and `/api/run` / `/api/test-e2e` refuse (409) while a sign-in is rewriting the cookie file.
 - Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`.
+### Fixed
+- `.\nlm2drive helper start` (and `up`) no longer blocks callers that capture its output, and the helper is no longer killed when the calling terminal/CI step/agent task ends: it is launched through WMI (`Win32_Process.Create`) with `cmd` doing the log redirection, instead of `Start-Process -RedirectStandard*`.
 ### Changed
 - Lint/type clean-up: exception chaining on API errors, blocking directory ops in the exporter moved off the event loop, md5 marked as a non-security checksum, `typing` fixes.
 - Safety: `Runner._finish` and `_process_with_retries` now refuse to continue (nothing is deleted) if a notebook row has vanished from the state DB.
