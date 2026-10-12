@@ -44,7 +44,7 @@ Failed notebooks show a ↻ button: press it, or just start another run. FAILED 
 ## Upgrading notebooklm-py
 1. Read the [releases](https://github.com/teng-lin/notebooklm-py/releases).
 2. Bump the version in `requirements.txt` **and** `NOTEBOOKLM_PY_VERSION` in `.env` / `.env.example`.
-3. `.\nlm2drive test`, then `.\nlm2drive up`.
+3. `.\nlm2drive check` (lint + typecheck + tests), then `.\nlm2drive up`, then `.\nlm2drive smoke`.
 4. Archive-only trial on one notebook. Check the README, sources and studio files on Drive.
 5. If `notebooklm login` gets fixed upstream (see ADR-007), `scripts/nlm_login.py` can stay. It only uses Playwright.
 

@@ -135,3 +135,5 @@ data/
 
 ## Tests
 `tests/` uses a fake NotebookLM client and an in-memory Drive (`tests/conftest.py`). The in-memory Drive reuses the real `DriveClient.verify_folder`. The fake NotebookLM can simulate a revoked Google session (`session_ok`, `expire_on_export`, `auth_fail_fulltext`). The tests cover deletion gating, incomplete exports, md5 retry, verification failure, dry run, limit, crash recovery, re-verification before delete, the full `may_delete` policy matrix, and session expiry (pause without failures, resume of the same notebook, Resume while still signed out, Stop while waiting, refusing to start on a dead session, auth-error classification, re-queueing of auth-failed rows). Run them with `.\nlm2drive test`.
+
+**Quality gates** (`.\nlm2drive check`): `ruff` (config and justified ignores in `pyproject.toml`), `mypy` over `app/` and `scripts/`, the pytest suite, and `scripts/smoke.py`, which probes a *running* stack read-only (health, summary shape, list endpoints, static assets) without calling NotebookLM or Drive.

@@ -11,8 +11,8 @@ import json
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .config import GOOGLE_DIR, PUBLIC_URL
 

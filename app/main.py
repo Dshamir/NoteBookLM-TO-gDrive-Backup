@@ -175,7 +175,7 @@ async def refresh():
         async with nlm.open_client() as client:
             items = await nlm.list_notebooks(client)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"Could not list notebooks: {type(e).__name__}: {e}"[:400])
+        raise HTTPException(502, f"Could not list notebooks: {type(e).__name__}: {e}"[:400]) from e
     db.upsert_listing(items, settings.get().years)
     st = _cached("auth", 3600) or {}
     _store("auth", {**st, "session": True, "ok": True, "notebooks": len(items), "error": None})
@@ -192,7 +192,7 @@ async def run(body: RunBody):
     try:
         run_id = await runner.start(opts)
     except RuntimeError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409, str(e)) from e
     return {"ok": True, "run_id": run_id}
 
 
@@ -201,7 +201,7 @@ async def test_e2e():
     try:
         run_id = await runner.start({"e2e": True, "delete": True})
     except RuntimeError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409, str(e)) from e
     return {"ok": True, "run_id": run_id}
 
 
@@ -291,7 +291,7 @@ async def events(request: Request):
                     break
                 try:
                     ev = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     ev = None
                 if ev is not None and ev.get("type") != "status":
                     if ev.get("type") == "notebook" and ev.get("row"):
@@ -328,7 +328,7 @@ async def auth_import(file: UploadFile = File(...)):
     try:
         data = json.loads(raw)
     except ValueError:
-        raise HTTPException(400, "Not valid JSON")
+        raise HTTPException(400, "Not valid JSON") from None
     if isinstance(data, list):
         cookies = []
         for c in data:
@@ -363,7 +363,7 @@ async def drive_credentials(file: UploadFile = File(...)):
     try:
         drive.save_client(await file.read())
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     _cache.pop("drive", None)
     return await _drive_status(True)
 
@@ -373,7 +373,7 @@ async def drive_connect():
     try:
         return {"url": drive.auth_url()}
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/drive/callback")

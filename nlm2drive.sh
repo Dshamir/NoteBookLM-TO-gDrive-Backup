@@ -135,6 +135,22 @@ cmd_restart() { load_env; ensure_engine; dc restart; wait_healthy && say "Restar
 cmd_logs()    { load_env; dc logs -f --tail=200; }
 cmd_open()    { load_env; open_url "$UI_URL"; }
 cmd_test()    { load_env; ensure_engine; dc build; dc run --rm --no-deps nlm2drive pytest -q; }
+cmd_lint()    { load_env; ensure_engine; dc build; dc run --rm --no-deps nlm2drive ruff check .; }
+cmd_typecheck() { load_env; ensure_engine; dc build; dc run --rm --no-deps nlm2drive mypy; }
+cmd_smoke()   {   # live checks against the RUNNING stack (read-only, no NotebookLM/Drive calls)
+  load_env; wait_healthy || die "UI/API not running — ./nlm2drive.sh up"
+  dk exec nlm2drive python scripts/smoke.py
+}
+cmd_check()   {   # every gate: lint → typecheck → tests, then smoke against the live stack if it is up
+  load_env; ensure_engine; dc build
+  dc run --rm --no-deps nlm2drive ruff check . || die "lint failed"
+  dc run --rm --no-deps nlm2drive mypy || die "typecheck failed"
+  dc run --rm --no-deps nlm2drive pytest -q || die "tests failed"
+  say "lint + typecheck + tests passed."
+  if curl -fsS "${UI_URL}/api/health" >/dev/null 2>&1; then
+    dk exec nlm2drive python scripts/smoke.py || die "smoke failed (rebuild the live stack with ./nlm2drive.sh up?)"
+  else warn "stack not running — smoke skipped (./nlm2drive.sh up, then ./nlm2drive.sh smoke)"; fi
+}
 
 cmd_status() {
   load_env
@@ -186,13 +202,16 @@ nlm2drive.sh — NotebookLM → Google Drive archiver
   refresh          refresh the NotebookLM session cookies
   e2e              self-test with a throwaway notebook (archive → verify → delete)
   test             run the unit tests in the container
+  lint | typecheck ruff / mypy in the container
+  smoke            read-only live checks against the running stack
+  check            lint + typecheck + tests (+ smoke if the stack is up)
 EOF
 }
 
 main() {
   local cmd="${1:-help}"; shift || true
   case "$cmd" in
-    setup|login|up|down|restart|logs|open|status|run|refresh|e2e|test) "cmd_$cmd" "$@" ;;
+    setup|login|up|down|restart|logs|open|status|run|refresh|e2e|test|lint|typecheck|smoke|check) "cmd_$cmd" "$@" ;;
     help|-h|--help) usage ;;
     *) usage; exit 1 ;;
   esac

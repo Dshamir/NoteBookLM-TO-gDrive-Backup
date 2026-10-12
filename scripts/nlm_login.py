@@ -89,7 +89,7 @@ def main() -> int:
         # them time to appear (bounded; we still save and warn if they never do).
         want = {"__Secure-1PSIDRTS", "__Secure-3PSIDRTS"}
         deadline = time.time() + 60
-        names: set[str] = set()
+        names = set()
         while time.time() < deadline:
             try:
                 names = {c["name"] for c in ctx.cookies() if c.get("domain", "").endswith("google.com")}

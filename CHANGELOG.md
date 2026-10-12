@@ -2,6 +2,13 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/), versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+### Added
+- Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`.
+### Changed
+- Lint/type clean-up: exception chaining on API errors, blocking directory ops in the exporter moved off the event loop, md5 marked as a non-security checksum, `typing` fixes.
+- Safety: `Runner._finish` and `_process_with_retries` now refuse to continue (nothing is deleted) if a notebook row has vanished from the state DB.
+
 ## [1.0.1] - 2026-10-12
 ### Fixed
 - **Run stuck at "metadata" after the NotebookLM session expired mid-run** (ADR-010):

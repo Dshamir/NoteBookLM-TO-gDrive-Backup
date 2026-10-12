@@ -130,6 +130,9 @@ From **PowerShell / cmd** use `.\nlm2drive <command>`. From Git Bash/WSL use `./
 | `refresh` | Refresh the NotebookLM session cookies |
 | `e2e` | Self-test with a throwaway notebook |
 | `test` | Run the unit tests in the container |
+| `lint` / `typecheck` | `ruff` / `mypy` in the container (config in `pyproject.toml`) |
+| `smoke` | Read-only live checks against the running stack (no NotebookLM/Drive calls) |
+| `check` | All gates: lint → typecheck → tests → smoke (smoke only if the stack is up) |
 
 ---
 

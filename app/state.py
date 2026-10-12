@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 # Stage machine --------------------------------------------------------------
 NEW = "NEW"
@@ -71,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_nb_stage ON notebooks(stage);
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class StateDB:

@@ -66,7 +66,8 @@ def year_dir(created_at: datetime | None) -> str:
 # -- hashing / manifest -----------------------------------------------------
 
 def hash_file(path: Path, chunk: int = 1024 * 1024) -> tuple[str, str, int]:
-    sha, md5, size = hashlib.sha256(), hashlib.md5(), 0
+    # md5 is Google Drive's own file checksum (what we compare against) - integrity, not security.
+    sha, md5, size = hashlib.sha256(), hashlib.md5(usedforsecurity=False), 0
     with open(path, "rb") as f:
         while True:
             b = f.read(chunk)
@@ -79,7 +80,7 @@ def hash_file(path: Path, chunk: int = 1024 * 1024) -> tuple[str, str, int]:
 
 
 def build_manifest(root: Path, notebook: dict) -> dict:
-    files = {}
+    files: dict[str, dict] = {}
     for p in sorted(root.rglob("*")):
         if p.is_file() and p.name != MANIFEST_NAME:
             rel = p.relative_to(root).as_posix()

@@ -1,0 +1,35 @@
+# Tooling config only — the app is not a pip package (see requirements.txt / Dockerfile).
+# Run the gates with `.\nlm2drive check` (lint + typecheck + tests + smoke).
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+extend-exclude = ["scratch", "data"]
+
+[tool.ruff.lint]
+# E/F pyflakes+pycodestyle, I imports, B bugbear, UP pyupgrade, ASYNC async pitfalls,
+# S security (bandit subset: hardcoded secrets, subprocess, assert, ...), BLE blind except.
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "BLE"]
+ignore = [
+  "E501",   # long lines are formatter territory; line-length above is advisory
+  "B008",   # FastAPI uses File(...) defaults in signatures
+  "S101",   # assert is fine in tests
+  "BLE001", # deliberate broad excepts at API/worker boundaries (they re-raise auth errors first, ADR-010)
+  "S110",   # best-effort cleanup paths (close browser/context, remove temp files) must never raise
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B", "ASYNC"]
+"scripts/*" = ["S603", "S607"]  # host-side helpers legitimately spawn processes
+# Only '?' placeholders and fixed column names are interpolated into SQL here - never user values.
+"app/state.py" = ["S608"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+no_implicit_optional = true
+files = ["app", "scripts"]
+exclude = ["scratch/"]

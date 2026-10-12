@@ -14,12 +14,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends tini curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install -r requirements.txt -r requirements-dev.txt
 
 COPY app ./app
 COPY tests ./tests
-COPY pytest.ini .
+COPY scripts/*.py ./scripts/
+COPY pytest.ini pyproject.toml ./
 
 EXPOSE 8765
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://127.0.0.1:8765/api/health || exit 1

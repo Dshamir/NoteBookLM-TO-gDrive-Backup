@@ -9,9 +9,10 @@ import asyncio
 import json
 import os
 import shutil
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from .archive import build_manifest, human_bytes, safe_filename, safe_name, unique_path
 from .config import NOTEBOOKLM_HOME
@@ -67,7 +68,7 @@ def _iso(dt: Any) -> str | None:
         return None
     if isinstance(dt, datetime):
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt.isoformat(timespec="seconds")
     return str(dt)
 
@@ -138,7 +139,7 @@ async def _maybe(cb: ProgressFn | None, msg: str) -> None:
 # ---------------------------------------------------------------- listing
 
 async def account_status() -> dict:
-    st = {"session": has_session(), "ok": False, "email": None, "notebooks": None, "error": None}
+    st: dict[str, Any] = {"session": has_session(), "ok": False, "email": None, "notebooks": None, "error": None}
     if not st["session"]:
         st["error"] = "No session — run ./nlm2drive.sh login"
         return st
@@ -171,7 +172,7 @@ async def probe(client) -> int:
 
 # ---------------------------------------------------------------- export
 
-ARTIFACT_PLAN = {
+ARTIFACT_PLAN: dict[str, tuple[str, list[tuple[str, str, dict[str, str]]], bool]] = {
     # kind value : (subfolder, [(download method, extension, kwargs)], is_media)
     "audio": ("audio", [("download_audio", ".m4a", {})], True),
     "video": ("video", [("download_video", ".mp4", {})], True),
@@ -195,9 +196,9 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
     Raises IncompleteExport when existing content could not be saved.
     """
     nb_id = nb["id"]
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
+    if await asyncio.to_thread(dest.exists):
+        await asyncio.to_thread(shutil.rmtree, dest)
+    await asyncio.to_thread(dest.mkdir, parents=True)
     stats: dict[str, Any] = {"sources": 0, "sources_failed": [], "notes": 0, "mind_maps": 0,
                              "artifacts": {}, "artifacts_skipped": [], "chat_turns": 0, "warnings": []}
     problems: list[str] = []
@@ -216,7 +217,7 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
         stats["warnings"].append(f"summary unavailable: {e}")
     meta = dict(nb)
     meta["summary"] = summary
-    meta["exported_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    meta["exported_at"] = datetime.now(UTC).isoformat(timespec="seconds")
     meta["exporter"] = "nlm2drive (notebooklm-py)"
 
     # ---- sources ----------------------------------------------------------

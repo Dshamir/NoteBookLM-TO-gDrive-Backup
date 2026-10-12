@@ -6,7 +6,7 @@ import itertools
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,11 +20,10 @@ import pytest  # noqa: E402
 
 from app.gdrive import DriveClient  # noqa: E402
 
-
 # --------------------------------------------------------------------------- fake NotebookLM
 
 def make_nb(nb_id: str, title: str, year: int, owner: bool = True, sources: int = 2):
-    return SimpleNamespace(id=nb_id, title=title, emoji="📘", created_at=datetime(year, 3, 4, tzinfo=timezone.utc),
+    return SimpleNamespace(id=nb_id, title=title, emoji="📘", created_at=datetime(year, 3, 4, tzinfo=UTC),
                            modified_at=None, last_viewed_at=None, sources_count=sources, is_owner=owner, role="owner")
 
 

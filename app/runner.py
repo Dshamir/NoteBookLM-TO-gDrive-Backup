@@ -14,16 +14,16 @@ import json
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from typing import Any
 
 from . import nlm_service as nlm
-from .archive import (MANIFEST_NAME, manifest_with_self, notebook_folder_name, render_catalog, year_dir)
+from .archive import MANIFEST_NAME, manifest_with_self, notebook_folder_name, render_catalog, year_dir
 from .config import STAGING_DIR, Settings, SettingsStore
 from .gdrive import DriveClient, DriveError
-from .state import (CLOUD_VERIFIED, DELETED, DELETING, EXPORTED, EXPORTING, FAILED, NEW, UPLOADED,
-                    UPLOADING, StateDB, now_iso)
+from .state import CLOUD_VERIFIED, DELETED, DELETING, EXPORTED, EXPORTING, FAILED, NEW, UPLOADED, UPLOADING, StateDB, now_iso
 
 NOTEBOOK_ATTEMPTS = 3          # whole-notebook retries inside one run
 EXPORT_ATTEMPTS = 2            # extra tries when some content failed to download
@@ -404,7 +404,7 @@ class Runner:
             try:
                 await asyncio.wait_for(self._resume.wait(), timeout=self.auth_poll_sec)
                 forced = True
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             if self._stop:
                 raise Stopped()
@@ -435,6 +435,8 @@ class Runner:
         for attempt in range(1, NOTEBOOK_ATTEMPTS + 1):
             row = self.db.get(nb_id)
             try:
+                if row is None:
+                    raise DriveError(f"notebook {nb_id} is not in the state database")
                 return await self.process(client, row, opts)
             except Stopped:
                 cur = self.db.get(nb_id)
@@ -556,6 +558,8 @@ class Runner:
     async def _finish(self, client, nb_id: str, opts: dict, s: Settings, root_parts: list[str],
                       reverify: bool) -> str:
         row = self.db.get(nb_id)
+        if row is None:  # never delete anything we have no verification record for
+            raise DriveError(f"notebook {nb_id} is not in the state database; nothing deleted")
         ok, why = may_delete(row, opts, s)
         if not ok:
             if not row.get("complete"):
