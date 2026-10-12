@@ -14,6 +14,7 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 - UI: no stale "in progress" card while paused/after a failure; red "Sign-in needed" pill and a banner with the exact steps; correct login hint (`.\nlm2drive login`).
 - A second NotebookLM client is no longer opened during a run (status/refresh calls); `/api/refresh` returns 409 while running.
 - `StateDB._x` returned a stale `lastrowid` for UPDATE/DELETE, so the "N notebooks interrupted" count was wrong.
+- Login helper now waits for Google's `__Secure-*PSIDRTS` rotation cookies before saving the session (the expired session lacked them).
 ### Added
 - Session probe before the first notebook (fail fast with a clear message) and on every reconnect.
 - 15 regression tests (42 total) with a fake NotebookLM that can simulate a revoked session.

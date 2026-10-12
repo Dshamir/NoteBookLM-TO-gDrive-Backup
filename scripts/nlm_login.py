@@ -83,6 +83,28 @@ def main() -> int:
         except Exception:
             pass
         print(f"  landed on: {pg.url[:100]}", flush=True)
+
+        # Google issues the rotation cookies (__Secure-1PSIDRTS / 3PSIDRTS) a little AFTER sign-in. A session
+        # saved without them could not be kept alive and was revoked ~2 h into a long run (ADR-010), so give
+        # them time to appear (bounded; we still save and warn if they never do).
+        want = {"__Secure-1PSIDRTS", "__Secure-3PSIDRTS"}
+        deadline = time.time() + 60
+        names: set[str] = set()
+        while time.time() < deadline:
+            try:
+                names = {c["name"] for c in ctx.cookies() if c.get("domain", "").endswith("google.com")}
+            except Exception:
+                break
+            if want <= names:
+                break
+            print("  waiting for Google's session-rotation cookies ...", flush=True)
+            time.sleep(3)
+        if want <= names:
+            print("  rotation cookies present - long-lived session.", flush=True)
+        else:
+            print("  WARNING: rotation cookies (__Secure-*PSIDRTS) did not appear; this session may expire "
+                  "within a few hours. Re-run login later or keep NotebookLM open in that window longer.",
+                  file=sys.stderr, flush=True)
         storage.parent.mkdir(parents=True, exist_ok=True)
         ctx.storage_state(path=str(storage))
         ctx.close()
