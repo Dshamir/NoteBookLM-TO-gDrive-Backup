@@ -98,16 +98,28 @@ switch ($Action) {
     $psArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Action start -DataDir `"$nlmDir`" -Browser $Browser -Port $Port"
     if ($Version) { $psArgs += " -Version $Version" }
     $act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
-    $trg = New-ScheduledTaskTrigger -AtLogOn -User $me
-    $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+    $trg1 = New-ScheduledTaskTrigger -AtLogOn -User $me
+    $trg2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 2)
+    $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
     $pri = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger $trg -Settings $set -Principal $pri -Force | Out-Null
-    Write-Host "Installed: the Reconnect helper now starts at every Windows logon (task '$TaskName')."
+    Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger @($trg1, $trg2) -Settings $set -Principal $pri -Force | Out-Null
+
+    # Also register in Windows Startup folder for redundancy across all logon scenarios
+    $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
+    if (Test-Path $startupFolder) {
+      $startupCmd = [System.IO.Path]::Combine($startupFolder, "nlm2drive-helper.cmd")
+      $cmdText = "@echo off`r`npowershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Action start -DataDir `"$nlmDir`" -Browser $Browser -Port $Port`r`n"
+      [System.IO.File]::WriteAllText($startupCmd, $cmdText, [System.Text.Encoding]::ASCII)
+    }
+    Write-Host "Installed: the Reconnect helper now starts automatically at every Windows logon."
   }
   "uninstall" {
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
       Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-      Write-Host "Removed the logon task '$TaskName'."
-    } else { Write-Host "No logon task installed." }
+    }
+    $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
+    $startupCmd = [System.IO.Path]::Combine($startupFolder, "nlm2drive-helper.cmd")
+    if (Test-Path $startupCmd) { Remove-Item $startupCmd -Force -ErrorAction SilentlyContinue }
+    Write-Host "Removed the logon auto-start task and Startup folder shortcut."
   }
 }

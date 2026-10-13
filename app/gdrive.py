@@ -247,6 +247,15 @@ class DriveClient:
                 "detail": f"all {len(expected)} files verified in Drive (md5)" if ok else
                 f"{len(missing)} missing, {len(mismatched)} mismatched"}
 
+    def folder_exists(self, folder_id: str) -> bool:
+        """Check whether a folder exists and is not trashed in Google Drive."""
+        try:
+            f = self.service().files().get(fileId=folder_id, fields="id,trashed").execute(num_retries=RETRIES)
+            return not bool(f.get("trashed", False))
+        except Exception:
+            return False
+
+
 
 def with_backoff(fn, attempts: int = 4, base: float = 2.0):
     """Retry wrapper for whole-operation failures not covered by googleapiclient num_retries."""

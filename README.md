@@ -19,7 +19,7 @@
   <img src="docs/assets/badges/bash.svg" alt="Bash">
   <img src="docs/assets/badges/powershell.svg" alt="PowerShell">
   <img src="docs/assets/badges/uv.svg" alt="uv">
-  <img src="docs/assets/badges/pytest-73-passing.svg" alt="pytest 73 passing">
+  <img src="docs/assets/badges/pytest-78-passing.svg" alt="pytest 78 passing">
   <img src="docs/assets/badges/windows-11.svg" alt="Windows 11">
   <img src="docs/assets/badges/mit-license.svg" alt="MIT license">
   <img src="docs/assets/badges/version-1-0-0.svg" alt="version 1.0.0">

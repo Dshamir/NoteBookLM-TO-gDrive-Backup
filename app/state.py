@@ -168,6 +168,41 @@ class StateDB:
                 (prefix,),
             )
 
+    def select_preset(self, preset: str, only: bool = True) -> int:
+        """Select owned, present notebooks matching a preset ('empty', 'stale', 'oldest25', 'oldest50')."""
+        with self._lock:
+            if only:
+                self._conn.execute("UPDATE notebooks SET selected=0")
+            if preset == "empty":
+                self._conn.execute(
+                    """UPDATE notebooks SET selected=1
+                       WHERE is_owner=1 AND present=1 AND (sources_count=0 OR sources_count IS NULL)"""
+                )
+            elif preset == "stale":
+                self._conn.execute(
+                    """UPDATE notebooks SET selected=1
+                       WHERE is_owner=1 AND present=1 AND created_at IS NOT NULL
+                       AND SUBSTR(created_at, 1, 10) <= date('now', '-180 days')"""
+                )
+            elif preset == "oldest25":
+                self._conn.execute(
+                    """UPDATE notebooks SET selected=1
+                       WHERE id IN (
+                           SELECT id FROM notebooks WHERE is_owner=1 AND present=1
+                           ORDER BY created_at ASC LIMIT 25
+                       )"""
+                )
+            elif preset == "oldest50":
+                self._conn.execute(
+                    """UPDATE notebooks SET selected=1
+                       WHERE id IN (
+                           SELECT id FROM notebooks WHERE is_owner=1 AND present=1
+                           ORDER BY created_at ASC LIMIT 50
+                       )"""
+                )
+            row = self._conn.execute("SELECT COUNT(*) n FROM notebooks WHERE selected=1").fetchone()
+            return int(row["n"] if row else 0)
+
     def update(self, nb_id: str, **cols) -> None:
         if not cols:
             return

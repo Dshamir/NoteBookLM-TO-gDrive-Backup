@@ -143,8 +143,9 @@ cmd_up() {
   mkdir -p data/notebooklm data/google data/staging data/logs
   dc up -d --build
   if wait_healthy; then say "UI ready → ${UI_URL}"; open_url "$UI_URL"; else warn "UI not healthy yet — check: ./nlm2drive.sh logs"; fi
-  # Optional convenience: lets the UI's "Reconnect NotebookLM" button open the Google sign-in on this PC.
-  helper_ps start || warn "Reconnect helper not started — the UI button needs it. Retry: ./nlm2drive.sh helper start (or sign in with ./nlm2drive.sh login)"
+  # Ensure the Reconnect helper is installed for auto-start and running for the UI button.
+  helper_ps install || true
+  helper_ps start || warn "Reconnect helper not started — the UI button needs it. Retry: ./nlm2drive.sh helper start"
 }
 
 cmd_down()    { load_env; helper_ps stop || true; dc down; }

@@ -259,20 +259,77 @@
     $("#btn-start-text").textContent = s.delete_after_verify ? "Archive & delete" : "Archive only";
   }
 
+  // ------------------------------------------------------------------ desktop notifications
+  const notif = {
+    enabled: localStorage.getItem("nlm2drive_notifications") === "true",
+    lastFinished: null,
+    authAlerted: false,
+  };
+
+  function updateNotifButton() {
+    const btn = $("#btn-toggle-notifications");
+    if (!btn) return;
+    const hasPerm = window.Notification && Notification.permission === "granted";
+    btn.classList.toggle("active", notif.enabled && hasPerm);
+    setText("#notif-label", notif.enabled && hasPerm ? "Alerts On" : "Alerts");
+  }
+
+  async function toggleNotifications() {
+    if (!window.Notification) {
+      toast("Desktop notifications are not supported in this browser", "warn");
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        toast("Notification permission denied", "warn");
+        return;
+      }
+    }
+    notif.enabled = !notif.enabled;
+    localStorage.setItem("nlm2drive_notifications", notif.enabled ? "true" : "false");
+    updateNotifButton();
+    toast(notif.enabled ? "Desktop notifications enabled" : "Desktop notifications disabled", "info");
+  }
+
+  function notifyUser(title, body) {
+    if (notif.enabled && window.Notification && Notification.permission === "granted") {
+      try {
+        new Notification(`nlm2drive · ${title}`, { body, icon: "/favicon.ico" });
+      } catch { /* ignored */ }
+    }
+  }
+
   function renderCapacity(limit = 500) {
     const c = state.counts || {};
     const present = c.present || 0;
-    const ratio = Math.min(1, present / (limit || 500));
+    const lim = limit || 500;
+    const ratio = Math.min(1, present / lim);
     const fg = $("#ring-fg");
-    fg.style.strokeDashoffset = String(314.16 * (1 - ratio));
-    fg.classList.toggle("full", ratio >= 0.98);
+    if (fg) {
+      fg.style.strokeDashoffset = String(314.16 * (1 - ratio));
+      fg.classList.toggle("full", ratio >= 0.98);
+    }
     setText("#cap-count", present);
-    setText("#cap-limit", `/ ${limit}`);
+    setText("#cap-limit", `/ ${lim}`);
     setText("#cap-2024", c.y2024 || 0);
     setText("#cap-2025", c.y2025 || 0);
     setText("#cap-freed", (c.by_stage || {}).DELETED || 0);
-    $("#cap-sub").textContent = present ? `${Math.max(0, limit - present)} slots free · ${c.selected || 0} selected` : "Refresh the list to count";
+    $("#cap-sub").textContent = present ? `${Math.max(0, lim - present)} slots free · ${c.selected || 0} selected` : "Refresh the list to count";
     setText("#sel-count", `${c.selected || 0} selected`);
+
+    // Topbar Quota Gauge
+    const pct = Math.round(ratio * 100);
+    setText("#quota-text", `${present} / ${lim}`);
+    setText("#quota-badge", `${pct}%`);
+    const qfill = $("#quota-bar-fill");
+    const qbadge = $("#quota-badge");
+    if (qfill && qbadge) {
+      qfill.style.width = `${pct}%`;
+      const level = present >= 475 ? "red" : present >= 400 ? "amber" : "green";
+      qfill.className = `quota-fill ${level}`;
+      qbadge.className = `quota-pct-badge ${level}`;
+    }
   }
 
   function renderStatus(st) {
@@ -333,6 +390,17 @@
       state.needsAuth = !!st.needs_auth;
       if (st.needs_auth) renderAuth({ ok: false, error: "Session expired — the run is waiting for a sign-in" });
       else checkAuth();
+    }
+
+    if (st.needs_auth && !notif.authAlerted) {
+      notif.authAlerted = true;
+      notifyUser("Sign-in Needed", "NotebookLM session expired. Press Reconnect to resume.");
+    } else if (!st.needs_auth) {
+      notif.authAlerted = false;
+    }
+    if (st.finished && notif.lastFinished !== st.finished) {
+      notif.lastFinished = st.finished;
+      notifyUser("Run Complete", `Archive run ${st.finished}: ${st.archived || 0} archived, ${st.deleted || 0} deleted.`);
     }
 
     if (prev && prev !== "idle" && st.state === "idle") { loadRuns(); loadSummary(); }
@@ -513,6 +581,11 @@
     const artCount = st.artifacts ? Object.keys(st.artifacts).length : 0;
     const errBlock = r.error ? `<div class="card-error" style="margin-top:10px;">${esc(r.error)}</div>` : "";
 
+    const canRestore = !r.present || r.stage === "DELETED";
+    const restoreBtn = canRestore
+      ? `<button class="btn btn-sm btn-restore" id="btn-nb-restore" title="Reconstitute this notebook into NotebookLM with backed-up sources">🔄 Restore to NotebookLM</button>`
+      : "";
+
     body.innerHTML = `
       <div class="nb-detail-head">
         <div class="nb-detail-emoji">${esc(r.emoji || "📓")}</div>
@@ -525,6 +598,7 @@
           <div class="nb-detail-actions">
             ${nlmLink}
             ${driveLink}
+            ${restoreBtn}
           </div>
         </div>
       </div>
@@ -558,6 +632,8 @@
           <div class="detail-row"><span class="detail-k">Studio Artifacts</span><span class="detail-v">${artCount} items</span></div>
           <div class="detail-row"><span class="detail-k">Chat Turns</span><span class="detail-v">${st.chat_turns ?? "–"}</span></div>
         </div>
+
+        <div id="nb-content-preview-box" style="grid-column: span 2; display: none;"></div>
       </div>
 
       <div class="modal-actions">
@@ -573,6 +649,51 @@
         toast("Notebook ID copied", "ok", 2000);
       };
     }
+
+    const restBtn = $("#btn-nb-restore");
+    if (restBtn) {
+      restBtn.onclick = () => withBusy(restBtn, async () => {
+        toast("Restoring notebook to NotebookLM…", "info");
+        const res = await api(`/api/notebooks/${r.id}/restore`, { body: {} });
+        if (res.already_present) {
+          toast("Notebook is already present in NotebookLM", "info");
+        } else {
+          toast(`Restored as "${res.title}" with ${res.sources_restored || 0} sources`, "ok", 6000);
+          await loadNotebooks();
+          $("#modal-nb-detail").close();
+        }
+      });
+    }
+
+    // Async load content preview (sources, audio)
+    api(`/api/notebooks/${r.id}/content`).then((data) => {
+      const box = $("#nb-content-preview-box");
+      if (!box) return;
+      let inner = "";
+      if (data.audio_file) {
+        inner += `
+          <div class="nb-detail-section audio-section">
+            <h4>🎧 Audio Overview / Podcast</h4>
+            <audio controls class="audio-player" src="/api/notebooks/${r.id}/audio" preload="metadata"></audio>
+          </div>
+        `;
+      }
+      if (data.sources && data.sources.length) {
+        inner += `
+          <div class="nb-detail-section">
+            <h4>Backed-up Sources (${data.sources.length})</h4>
+            <ul class="content-item-list">
+              ${data.sources.map((s) => `<li class="content-item"><span>${esc(s.name)}</span><span class="mono">${bytes(s.size)}</span></li>`).join("")}
+            </ul>
+          </div>
+        `;
+      }
+      if (inner) {
+        box.innerHTML = inner;
+        box.style.display = "grid";
+        box.style.gap = "12px";
+      }
+    }).catch(() => {});
 
     $("#modal-nb-detail").showModal();
   }
@@ -794,9 +915,37 @@
       catch (er) { toast(er.message, "error"); }
     });
 
-    $("#chk-all").onchange = (e) => select(filtered().filter((r) => r.is_owner && r.present && r.stage !== "DELETED").map((r) => r.id), e.target.checked);
     $("#btn-sel-visible").onclick = () => select(filtered().filter((r) => r.is_owner && r.present && r.stage !== "DELETED").map((r) => r.id), true);
     $("#btn-unsel-visible").onclick = () => select(filtered().map((r) => r.id), false);
+    const selFiltBtn = $("#btn-sel-filtered");
+    if (selFiltBtn) {
+      selFiltBtn.onclick = async () => {
+        const rows = filtered().filter((r) => r.is_owner && r.present && r.stage !== "DELETED");
+        if (!rows.length) { toast("No selectable notebooks in current filter", "warn"); return; }
+        await select(rows.map((r) => r.id), true);
+        toast(`Selected ${rows.length} filtered notebooks`, "ok");
+      };
+    }
+    const notifBtn = $("#btn-toggle-notifications");
+    if (notifBtn) notifBtn.onclick = toggleNotifications;
+    const auditBtn = $("#btn-audit-archive");
+    if (auditBtn) {
+      auditBtn.onclick = (e) => withBusy(e.currentTarget, async () => {
+        toast("Auditing Drive archive integrity…", "info");
+        const res = await api("/api/audit", { body: {} });
+        toast(`Audit complete: ${res.verified}/${res.total} intact in Drive (${res.missing} missing)`, res.missing ? "warn" : "ok", 7000);
+      });
+    }
+    $$("#preset-chips .chip-preset").forEach((btn) => {
+      btn.onclick = async () => {
+        const preset = btn.dataset.preset;
+        try {
+          const res = await api("/api/notebooks/select-preset", { body: { preset, only: true } });
+          await loadNotebooks();
+          toast(`Selected ${res.count} notebooks for preset "${btn.textContent.trim()}"`, "ok");
+        } catch (e) { toast(e.message, "error"); }
+      };
+    });
     $("#btn-sel-years").onclick = async () => { await api("/api/notebooks/select-years", { body: { years: state.settings.years || [2024, 2025], only: true } }); await loadNotebooks(); toast("Selected all owned 2024 + 2025 notebooks", "ok"); };
     $$("#year-chips .chip").forEach((c) => c.onclick = () => { $$("#year-chips .chip").forEach((x) => x.classList.remove("active")); c.classList.add("active"); state.filters.year = c.dataset.year; renderTable(); });
     $$("#status-chips .chip").forEach((c) => c.onclick = () => { $$("#status-chips .chip").forEach((x) => x.classList.remove("active")); c.classList.add("active"); state.filters.status = c.dataset.status; renderTable(); });
@@ -855,6 +1004,7 @@
     checkAuth();
     resumeReconnectIfRunning();
     checkDrive();
+    updateNotifButton();
   }
 
   document.addEventListener("DOMContentLoaded", boot);

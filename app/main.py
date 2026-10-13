@@ -2,21 +2,24 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import nlm_service as nlm
 from . import reconnect
-from .config import DB_PATH, SettingsStore, ensure_dirs
+from .config import DB_PATH, STAGING_DIR, SettingsStore, ensure_dirs
 from .gdrive import DriveClient
 from .runner import EventBus, Runner
 from .state import StateDB
@@ -71,6 +74,11 @@ class YearsBody(BaseModel):
 
 class CutoffBody(BaseModel):
     before: str
+    only: bool = True
+
+
+class PresetBody(BaseModel):
+    preset: str
     only: bool = True
 
 
@@ -181,6 +189,12 @@ async def select_cutoff(body: CutoffBody):
     return {"ok": True}
 
 
+@app.post("/api/notebooks/select-preset")
+async def select_preset(body: PresetBody):
+    count = db.select_preset(body.preset, body.only)
+    return {"ok": True, "count": count}
+
+
 @app.post("/api/refresh")
 async def refresh():
     if runner.running:
@@ -254,6 +268,199 @@ async def retry(nb_id: str):
         db.set_stage(nb_id, "NEW", error=None)
     db.set_selected([nb_id], True)
     return {"ok": True}
+
+
+@app.post("/api/notebooks/{nb_id}/restore")
+async def restore_notebook(nb_id: str):
+    await _refuse_during_sign_in()
+    if runner.running:
+        raise HTTPException(409, "A run is in progress — wait until it finishes to restore.")
+    row = db.get(nb_id)
+    if not row:
+        raise HTTPException(404, "Unknown notebook")
+    if row.get("present"):
+        return {
+            "ok": True,
+            "already_present": True,
+            "id": nb_id,
+            "title": row["title"],
+            "url": f"https://notebooklm.google.com/notebook/{nb_id}",
+        }
+
+    sources: list[dict[str, str]] = []
+    st_dir = STAGING_DIR / nb_id / "Sources"
+    if st_dir.exists():
+        for p in sorted(st_dir.glob("*.md")):
+            try:
+                sources.append({"title": p.stem, "content": p.read_text(encoding="utf-8")})
+            except Exception:
+                pass
+
+    try:
+        async with nlm.open_client() as client:
+            new_nb = await client.notebooks.create(title=row["title"] or "Restored Notebook")
+            added = 0
+            for src in sources:
+                try:
+                    await client.sources.add_text(new_nb.id, title=src["title"], content=src["content"], wait=True)
+                    added += 1
+                except Exception:
+                    pass
+    except Exception as e:
+        raise HTTPException(502, f"Could not restore notebook in NotebookLM: {e}") from e
+
+    db.upsert_one({
+        "id": new_nb.id,
+        "title": new_nb.title,
+        "is_owner": True,
+        "sources_count": added,
+        "year": datetime.now(UTC).year,
+    })
+    db.add_event("ok", f"Restored notebook '{row['title']}' as {new_nb.id} in NotebookLM ({added} sources re-uploaded)",
+                 notebook_id=new_nb.id)
+    bus.publish({"type": "refresh"})
+    return {
+        "ok": True,
+        "already_present": False,
+        "new_id": new_nb.id,
+        "title": new_nb.title,
+        "url": f"https://notebooklm.google.com/notebook/{new_nb.id}",
+        "sources_restored": added,
+    }
+
+
+@app.get("/api/notebooks/{nb_id}/content")
+async def notebook_content(nb_id: str):
+    row = db.get(nb_id)
+    if not row:
+        raise HTTPException(404, "Unknown notebook")
+
+    manifest_file = STAGING_DIR / nb_id / "manifest.json"
+    manifest = None
+    if manifest_file.exists():
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    sources: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
+    audio_file: str | None = None
+
+    nb_dir = STAGING_DIR / nb_id
+    if nb_dir.exists():
+        src_dir = nb_dir / "Sources"
+        if src_dir.exists():
+            for p in sorted(src_dir.glob("*.*")):
+                sources.append({"name": p.name, "size": p.stat().st_size})
+        note_dir = nb_dir / "Notes"
+        if note_dir.exists():
+            for p in sorted(note_dir.glob("*.*")):
+                notes.append({"name": p.name, "size": p.stat().st_size})
+        for ext in (".wav", ".mp3", ".m4a"):
+            for p in nb_dir.rglob(f"*{ext}"):
+                audio_file = p.name
+                break
+
+    stats = None
+    if row.get("stats"):
+        try:
+            stats = json.loads(row["stats"])
+        except Exception:
+            pass
+
+    return {
+        "id": nb_id,
+        "title": row["title"],
+        "has_staging": nb_dir.exists(),
+        "manifest": manifest,
+        "sources": sources,
+        "notes": notes,
+        "audio_file": audio_file,
+        "stats": stats,
+    }
+
+
+@app.get("/api/notebooks/{nb_id}/audio")
+async def notebook_audio(nb_id: str):
+    nb_dir = STAGING_DIR / nb_id
+    if nb_dir.exists():
+        for ext, mime in ((".wav", "audio/wav"), (".mp3", "audio/mpeg"), (".m4a", "audio/mp4")):
+            for p in nb_dir.rglob(f"*{ext}"):
+                return FileResponse(p, media_type=mime, filename=p.name)
+    raise HTTPException(404, "No local audio file found for this notebook")
+
+
+@app.get("/api/export/csv")
+async def export_csv():
+    rows = db.list_notebooks()
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow([
+        "id", "title", "emoji", "created_at", "year", "sources_count", "is_owner",
+        "selected", "stage", "complete", "files", "bytes", "drive_folder_id", "folder",
+        "error", "deleted_at", "updated_at"
+    ])
+    for r in rows:
+        writer.writerow([
+            r.get("id", ""), r.get("title", ""), r.get("emoji", ""), r.get("created_at", ""),
+            r.get("year", ""), r.get("sources_count", ""), r.get("is_owner", ""),
+            r.get("selected", ""), r.get("stage", ""), r.get("complete", ""),
+            r.get("files", ""), r.get("bytes", ""), r.get("drive_folder_id", ""),
+            r.get("folder", ""), r.get("error", ""), r.get("deleted_at", ""), r.get("updated_at", "")
+        ])
+    return Response(
+        content=out.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="notebooklm-archive-catalog.csv"'}
+    )
+
+
+@app.get("/api/export/json")
+async def export_json():
+    rows = [_row_out(r) for r in db.list_notebooks()]
+    data = {
+        "exported_at": nlm._iso(datetime.now(UTC)),
+        "counts": db.counts(),
+        "notebooks": rows,
+    }
+    return Response(
+        content=json.dumps(data, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="notebooklm-archive-catalog.json"'}
+    )
+
+
+@app.post("/api/audit")
+async def audit_archive():
+    if not drive.connected():
+        raise HTTPException(400, "Google Drive is not connected.")
+    archived = db.by_stage("CLOUD_VERIFIED", "DELETED")
+    total = len(archived)
+    verified = 0
+    missing = 0
+    issues: list[dict[str, Any]] = []
+
+    for nb in archived:
+        fid = nb.get("drive_folder_id")
+        if not fid:
+            missing += 1
+            issues.append({"id": nb["id"], "title": nb["title"], "issue": "Missing drive_folder_id"})
+            continue
+        try:
+            exists = await asyncio.to_thread(drive.folder_exists, fid)
+            if exists:
+                verified += 1
+            else:
+                missing += 1
+                issues.append({"id": nb["id"], "title": nb["title"], "issue": "Folder not found in Drive"})
+        except Exception as e:
+            missing += 1
+            issues.append({"id": nb["id"], "title": nb["title"], "issue": str(e)})
+
+    db.add_event("info", f"Drive archive audit: {verified}/{total} verified intact, {missing} issues")
+    return {"total": total, "verified": verified, "missing": missing, "issues": issues[:20]}
+
 
 
 @app.get("/api/settings")

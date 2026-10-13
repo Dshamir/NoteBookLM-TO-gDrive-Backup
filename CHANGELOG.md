@@ -21,7 +21,28 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 - **In-App Notebook Inspector Modal**:
   - Detailed popup dialog showing full notebook metadata, created & updated timestamps, ownership, Drive verification completeness, total size, file count, and exported studio artifacts / chat statistics.
   - Copy notebook ID button and direct external links to NotebookLM and Google Drive.
-- Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`.
+- **Quota Gauge & Capacity Monitor**:
+  - Live visual progress meter in the header displaying current capacity (`X / 500 Notebooks · Y%`) with color-coded safety badges (Green `< 400`, Amber `400–474`, Red `≥ 475`).
+  - Total Drive storage meter tracking verified gigabytes archived in Google Drive.
+- **Smart Cleanup Presets & Bulk Filtering**:
+  - 1-Click smart preset chips: `🗑️ Empty Drafts (0 sources)`, `⏳ Stale (>6 mo)`, `⚡ Oldest 25`, and `⚡ Oldest 50` backed by `POST /api/notebooks/select-preset`.
+  - `Select Filtered` button in the bulk toolbar to instantly select all notebooks matching current search queries and filters.
+- **1-Click "Restore to NotebookLM"**:
+  - Re-constitute deleted or archived notebooks directly back into NotebookLM from their Drive backup (`POST /api/notebooks/{nb_id}/restore`), re-uploading original text sources via `client.notebooks.create()` and `client.sources.add_text()`.
+- **Catalog Export & Drive Archive Integrity Auditor**:
+  - Download complete notebook catalog as CSV (`GET /api/export/csv`) or JSON (`GET /api/export/json`) for offline inventory and spreadsheet analysis.
+  - 1-Click Drive Archive Auditor (`POST /api/audit`): verifies existence and integrity of all archived notebook folders in Google Drive.
+- **In-Modal Content Preview & Audio Overview Player**:
+  - In-app preview of backed-up text sources and notes directly in the Notebook Inspector modal (`GET /api/notebooks/{nb_id}/content`).
+  - Embedded HTML5 audio player (`GET /api/notebooks/{nb_id}/audio`) to listen to generated audio overviews and podcasts inside the dashboard.
+- **Desktop Notifications**:
+  - Browser/Windows notification alerts on run completion and session-expiry pauses via the HTML5 Notifications API (`🔔 Alerts` toggle).
+- **Hardened Background Reconnect Helper & Watchdog**:
+  - Windows Task Scheduler watchdog trigger with automatic restart ensuring the helper is always active in the background.
+  - Windows Startup folder auto-start integration for dual-layered boot resilience.
+  - Daemon signal immunity on Windows (`SIGINT` ignored) preventing accidental shutdown when parent console windows close.
+  - Stale helper config auto-cleanup and streamlined browser-only reconnect messaging.
+- Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`. 78 tests passing.
 ### Fixed
 - `.\nlm2drive helper start` (and `up`) no longer blocks callers that capture its output, and the helper is no longer killed when the calling terminal/CI step/agent task ends: it is launched through WMI (`Win32_Process.Create`) with `cmd` doing the log redirection, instead of `Start-Process -RedirectStandard*`.
 ### Changed

@@ -47,21 +47,17 @@ Read this first when resuming work on this project.
 - `notebooklm login` is unreliable (ADR-007). Use `scripts/nlm_login.py`.
 - NotebookLM is also served at `notebook.google.com`; cookies exist for both hosts.
 
-## Current state (2026-10-12)
+## Current state (2026-10-13)
 - v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
-- 2026-10-12: v1.0.1 (session-expiry fix, ADR-010) plus, unreleased on `main`: quality gates (ruff/mypy/smoke), the **Reconnect NotebookLM button** (ADR-011), and the **Grid View / Advanced Search / Date Cutoff / Notebook Inspector** upgrade. 73 tests.
-  - Grid View & Cards: Table ↔ Grid toggle switch, generative mesh gradient hero thumbnails, 3D frosted glass emojis, status indicators, and direct NotebookLM (`↗ Live`) and Drive links.
-  - Advanced Search & Filters: dynamic Year chips with live counts (`All years (498)`, `2026 (413)`, `2025 (81)`, `2024 (4)`), Month dropdown filter (`01 · Jan` .. `12 · Dec`), auto-extracted Topic chips, and "Created before <date>" cutoff selector with `POST /api/notebooks/select-cutoff`.
-  - In-App Notebook Inspector Modal: full metadata, status, Drive verification, and content/artifact stats (sources, notes, media, chat turns).
-  - 2026-10-12: first big run archived+deleted 74 notebooks, then Google revoked the NotebookLM session (~2 h in). The run now pauses; recovery = press **Reconnect NotebookLM** in the UI (or `.\nlm2drive login`); the paused run continues by itself.
-  - The real-Windows path of the helper (hidden `powershell` spawn, `taskkill` tree kill, `uv` start, logon task) was verified manually once on 2026-10-12 (Reconnect via the API: Chrome opened, session saved and validated in 12 s, 413 notebooks); the unit tests use a fake sign-in command.
-  - The live stack answered the smoke test with the helper running (container → `host.docker.internal:8766` works on Docker Desktop).
-  - Login: Chrome, Workspace account, 498 notebooks.
-  - Drive connected (Audience = Internal).
-  - Archive-only trial: 1 notebook, 11 files, 15.5 MB, verified in about 30 s.
-- Account mix at that time:
-  - 2024: 4 notebooks, 2025: 81, 2026: 413 (1 shared).
-  - Archiving 2024 + 2025 frees only 85 slots.
+- 2026-10-13: Extended Suite (78 tests, ruff, mypy, smoke all green):
+  - **Hardened Host Helper & Watchdog**: Task Scheduler watchdog (repeating every 2 min), Windows Startup folder script, daemon `SIGINT` immunity on Windows, stale config cleanup, seamless in-browser reconnect.
+  - **Quota Gauge & Capacity Bar**: real-time capacity meter (`413 / 500 Notebooks · 82%`) with color-coded safety badges (Green/Amber/Red) and total Drive storage counter.
+  - **Quick Cleanup Presets**: 1-click pills for `Empty Drafts (0)`, `Stale (>6 mo)`, `Oldest 25`, `Oldest 50` via `POST /api/notebooks/select-preset` + `Select Filtered` button.
+  - **1-Click "Restore to NotebookLM"**: `POST /api/notebooks/{id}/restore` reconstitutes deleted/archived notebooks back into NotebookLM with original text sources.
+  - **Catalog Export & Auditor**: `GET /api/export/csv`, `GET /api/export/json`, and Drive integrity auditor (`POST /api/audit`).
+  - **In-Modal Content Preview & HTML5 Audio Player**: preview backed-up sources/notes and listen to audio overview podcasts inside the inspector modal.
+  - **Desktop Notifications**: HTML5 Notifications API alerts on run finish or auth-needed pauses.
+- Account mix: 413 present notebooks in 2026 (1 shared), 85 deleted/archived. Drive connected, Google session authenticated.
 
 ## Open ideas / backlog
 - Optional scheduled runs (e.g. monthly: archive notebooks older than N months).

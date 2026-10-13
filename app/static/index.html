@@ -26,6 +26,20 @@
       </div>
     </div>
     <div class="topbar-right">
+      <div class="quota-gauge-box" id="quota-gauge-box" title="NotebookLM 500 Notebook Limit Status">
+        <div class="quota-gauge-info">
+          <span class="quota-label">Quota</span>
+          <span class="quota-val" id="quota-text">– / 500</span>
+          <span class="quota-pct-badge" id="quota-badge">0%</span>
+        </div>
+        <div class="quota-track">
+          <div class="quota-fill" id="quota-bar-fill" style="width: 0%"></div>
+        </div>
+      </div>
+      <button id="btn-toggle-notifications" class="btn btn-ghost" title="Enable/Disable Desktop Notifications">
+        <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span id="notif-label">Alerts</span>
+      </button>
       <span id="run-pill" class="pill pill-idle"><i></i><span id="run-pill-text">Idle</span></span>
       <button id="btn-settings" class="btn btn-ghost" title="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -53,7 +67,7 @@
             <input type="file" id="input-cookie-import" accept=".json,application/json" hidden>
           </label>
         </div>
-        <p class="hint" id="nlm-hint">Press <b>Reconnect</b> (opens Chrome) to sign in, or run <code>.\nlm2drive login</code> in PowerShell.</p>
+        <p class="hint" id="nlm-hint">Press <b>Reconnect</b> to open Chrome and sign in to Google NotebookLM.</p>
         <p class="hint reconnect-status hidden" id="reconnect-status" role="status" aria-live="polite"></p>
       </article>
 
@@ -111,6 +125,9 @@
         <p class="hint">Year folders → one browsable folder per notebook (sources, notes, studio media, chat, README, manifest).</p>
         <div class="card-actions">
           <a class="btn btn-sm btn-ghost hidden" id="link-drive-folder" target="_blank" rel="noopener">Open in Drive ↗</a>
+          <button class="btn btn-sm btn-ghost" id="btn-audit-archive" title="Verify all archived folders and files in Google Drive">🛡️ Audit Drive</button>
+          <a class="btn btn-sm btn-ghost" href="/api/export/csv" download="notebooklm-archive-catalog.csv" title="Download entire notebook catalog as CSV">⬇ CSV</a>
+          <a class="btn btn-sm btn-ghost" href="/api/export/json" download="notebooklm-archive-catalog.json" title="Download catalog as JSON">⬇ JSON</a>
         </div>
       </article>
     </section>
@@ -189,7 +206,7 @@
           <ol>
             <li>Press <b>Reconnect NotebookLM</b> and sign in to Google in the Chrome window that opens.</li>
             <li>That's all: this page notices the new session by itself and the run carries on with the same notebook.</li>
-            <li class="alt">Button not working? In PowerShell run <code>.\nlm2drive login</code> instead.</li>
+            <li class="alt">Chrome will open automatically for a quick Google sign-in.</li>
           </ol>
           <p class="auth-banner-detail" id="auth-banner-detail"></p>
           <p class="auth-banner-detail reconnect-status hidden" id="reconnect-banner-status" role="status" aria-live="polite"></p>
@@ -268,6 +285,16 @@
         </div>
       </div>
 
+      <div class="preset-bar" id="preset-bar">
+        <span class="preset-label">⚡ Quick Presets:</span>
+        <div class="chips preset-chips" id="preset-chips" role="group" aria-label="Smart cleanup presets">
+          <button class="chip chip-preset" data-preset="empty" id="chip-pre-empty" title="Select owned notebooks with 0 sources">🗑️ Empty Drafts (0)</button>
+          <button class="chip chip-preset" data-preset="stale" id="chip-pre-stale" title="Select owned notebooks created > 6 months ago">⏳ Stale (&gt;6 mo)</button>
+          <button class="chip chip-preset" data-preset="oldest25" id="chip-pre-oldest25" title="Select the 25 oldest owned notebooks">⚡ Oldest 25</button>
+          <button class="chip chip-preset" data-preset="oldest50" id="chip-pre-oldest50" title="Select the 50 oldest owned notebooks">⚡ Oldest 50</button>
+        </div>
+      </div>
+
       <div class="bulk-bar">
         <button class="btn btn-sm btn-ghost" id="btn-sel-years">Select all 2024 + 2025</button>
         <div class="cutoff-group">
@@ -276,6 +303,7 @@
           <button class="btn btn-sm btn-ghost" id="btn-sel-cutoff" title="Select owned notebooks created on or before this date">Select before date</button>
         </div>
         <button class="btn btn-sm btn-ghost" id="btn-sel-visible">Select visible</button>
+        <button class="btn btn-sm btn-ghost" id="btn-sel-filtered" title="Select all notebooks matching current search and filters">Select filtered</button>
         <button class="btn btn-sm btn-ghost" id="btn-unsel-visible">Clear visible</button>
       </div>
 

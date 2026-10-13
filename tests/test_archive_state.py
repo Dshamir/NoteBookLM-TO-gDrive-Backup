@@ -79,3 +79,29 @@ def test_select_cutoff(tmp_path):
     db.select_cutoff("2026-04-01", only=True)
     sel = {r["id"] for r in db.list_notebooks() if r["selected"]}
     assert sel == {"nb1", "nb2"}
+
+
+def test_select_preset(tmp_path):
+    db = StateDB(tmp_path / "s.sqlite")
+    items = [
+        {"id": "nb_empty", "title": "Empty draft", "created_at": "2026-10-05T00:00:00+00:00", "sources_count": 0, "year": 2026, "is_owner": True},
+        {"id": "nb_stale", "title": "Old notes", "created_at": "2024-01-01T00:00:00+00:00", "sources_count": 5, "year": 2024, "is_owner": True},
+        {"id": "nb_shared", "title": "Shared empty", "created_at": "2026-10-05T00:00:00+00:00", "sources_count": 0, "year": 2026, "is_owner": False},
+        {"id": "nb_recent", "title": "Fresh doc", "created_at": "2026-09-01T00:00:00+00:00", "sources_count": 3, "year": 2026, "is_owner": True},
+    ]
+    db.upsert_listing(items, [])
+
+    # Empty preset selects owned notebooks with 0 sources, never shared
+    cnt = db.select_preset("empty", only=True)
+    assert cnt == 1
+    assert {r["id"] for r in db.list_notebooks() if r["selected"]} == {"nb_empty"}
+
+    # Stale preset selects notebooks created > 180 days ago
+    cnt = db.select_preset("stale", only=True)
+    assert cnt == 1
+    assert {r["id"] for r in db.list_notebooks() if r["selected"]} == {"nb_stale"}
+
+    # Oldest25 selects up to 25 oldest owned notebooks
+    cnt = db.select_preset("oldest25", only=True)
+    assert cnt == 3  # nb_stale, nb_empty, nb_recent (nb_shared excluded)
+

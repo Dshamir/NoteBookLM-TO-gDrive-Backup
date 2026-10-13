@@ -26,6 +26,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -305,6 +306,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     server_box.append(server)
     atomic_write_json(conf, {"port": args.port, "token": token, "pid": os.getpid(), "started": _now()})
     print(f"nlm2drive reconnect helper listening on 127.0.0.1:{args.port} (conf: {conf})", flush=True)
+    if sys.platform == "win32":
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except Exception:
+            pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
