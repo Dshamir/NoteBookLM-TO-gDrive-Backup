@@ -42,7 +42,13 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
   - Windows Startup folder auto-start integration for dual-layered boot resilience.
   - Daemon signal immunity on Windows (`SIGINT` ignored) preventing accidental shutdown when parent console windows close.
   - Stale helper config auto-cleanup and streamlined browser-only reconnect messaging.
-- Quality gates, all run in the container: `.\nlm2drive lint` (ruff: pyflakes, pycodestyle, isort, bugbear, pyupgrade, async, bandit-subset), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). Config in `pyproject.toml`; tools in `requirements-dev.txt`. 78 tests passing.
+- **Adversarial Hardening & Security Guards**:
+  - **Invariant 2 Strict Enforcement**: `POST /api/notebooks/{nb_id}/restore` forbids restoring shared notebooks (HTTP 403).
+  - **Path Traversal Guard**: `_safe_staging_dir` prevents directory traversal attacks across content and audio streaming endpoints (`..` and path separators rejected with HTTP 400).
+  - **Audio Path Boundary Verification**: `GET /api/notebooks/{nb_id}/audio` validates that audio files are resolved strictly within the notebook staging sandbox (`is_relative_to`), guarding against symlink escapes.
+  - **Input Validation**: `POST /api/notebooks/select-preset` strictly validates against allowed presets (`empty`, `stale`, `oldest25`, `oldest50`), rejecting unknown inputs with HTTP 400.
+  - **Bounded Parallel Auditor**: `POST /api/audit` parallelizes Drive folder checks with an `asyncio.Semaphore(8)` concurrency limiter and graceful per-folder exception handling.
+- Quality gates, all run in the container: `.\nlm2drive lint` (ruff), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). 82 tests passing cleanly.
 ### Fixed
 - `.\nlm2drive helper start` (and `up`) no longer blocks callers that capture its output, and the helper is no longer killed when the calling terminal/CI step/agent task ends: it is launched through WMI (`Win32_Process.Create`) with `cmd` doing the log redirection, instead of `Start-Process -RedirectStandard*`.
 ### Changed

@@ -49,7 +49,8 @@ Read this first when resuming work on this project.
 
 ## Current state (2026-10-13)
 - v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
-- 2026-10-13: Extended Suite (78 tests, ruff, mypy, smoke all green):
+- 2026-10-13: Extended Suite & Adversarial Hardening (82 tests, ruff, mypy, smoke all green):
+  - **Adversarial Hardening**: Invariant 2 enforced on restore (HTTP 403 for shared notebooks), path traversal prevented (`_safe_staging_dir` on content/audio/restore), preset validation (`ALLOWED_PRESETS`), bounded parallel Drive archive auditor (`asyncio.Semaphore(8)`).
   - **Hardened Host Helper & Watchdog**: Task Scheduler watchdog (repeating every 2 min), Windows Startup folder script, daemon `SIGINT` immunity on Windows, stale config cleanup, seamless in-browser reconnect.
   - **Quota Gauge & Capacity Bar**: real-time capacity meter (`413 / 500 Notebooks · 82%`) with color-coded safety badges (Green/Amber/Red) and total Drive storage counter.
   - **Quick Cleanup Presets**: 1-click pills for `Empty Drafts (0)`, `Stale (>6 mo)`, `Oldest 25`, `Oldest 50` via `POST /api/notebooks/select-preset` + `Select Filtered` button.

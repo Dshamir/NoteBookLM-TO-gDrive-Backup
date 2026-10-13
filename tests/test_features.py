@@ -69,3 +69,63 @@ def test_restore_already_present():
     assert data["ok"] is True
     assert data["already_present"] is True
     assert "notebooklm.google.com" in data["url"]
+
+
+def test_select_preset_invalid():
+    client = TestClient(main.app)
+    res = client.post("/api/notebooks/select-preset", json={"preset": "drop_tables", "only": True})
+    assert res.status_code == 400
+    assert "Unknown preset" in res.json()["error"]
+
+
+def test_restore_refuses_shared_notebook():
+    client = TestClient(main.app)
+    main.db.upsert_listing([
+        {"id": "nb_shared1", "title": "Shared Doc", "created_at": "2026-03-01T00:00:00+00:00", "sources_count": 1, "year": 2026, "is_owner": False},
+    ], [])
+
+    res = client.post("/api/notebooks/nb_shared1/restore")
+    assert res.status_code == 403
+    assert "Invariant 2" in res.json()["error"]
+
+
+def test_staging_path_traversal_refused():
+    client = TestClient(main.app)
+    res_content = client.get("/api/notebooks/evil..notebook/content")
+    assert res_content.status_code == 400
+    assert res_content.json()["error"] == "Invalid notebook ID"
+
+    res_audio = client.get("/api/notebooks/evil..notebook/audio")
+    assert res_audio.status_code == 400
+    assert res_audio.json()["error"] == "Invalid notebook ID"
+
+
+def test_audit_endpoint(monkeypatch):
+    client = TestClient(main.app)
+
+    # When drive is disconnected -> 400
+    monkeypatch.setattr(main.drive, "connected", lambda: False)
+    res = client.post("/api/audit")
+    assert res.status_code == 400
+
+    # When drive is connected -> audits intact vs missing
+    monkeypatch.setattr(main.drive, "connected", lambda: True)
+    monkeypatch.setattr(main.drive, "folder_exists", lambda fid: fid == "f_intact")
+
+    main.db.upsert_listing([
+        {"id": "nb_aud1", "title": "Audited 1", "created_at": "2026-03-01T00:00:00+00:00", "sources_count": 1, "year": 2026, "is_owner": True},
+        {"id": "nb_aud2", "title": "Audited 2", "created_at": "2026-03-02T00:00:00+00:00", "sources_count": 1, "year": 2026, "is_owner": True},
+        {"id": "nb_aud3", "title": "Audited 3", "created_at": "2026-03-03T00:00:00+00:00", "sources_count": 1, "year": 2026, "is_owner": True},
+    ], [])
+    main.db.set_stage("nb_aud1", "CLOUD_VERIFIED", drive_folder_id="f_intact")
+    main.db.set_stage("nb_aud2", "DELETED", drive_folder_id="f_missing")
+    main.db.set_stage("nb_aud3", "DELETED", drive_folder_id=None)
+
+    res2 = client.post("/api/audit")
+    assert res2.status_code == 200
+    data = res2.json()
+    assert data["total"] == 3
+    assert data["verified"] == 1
+    assert data["missing"] == 2
+    assert len(data["issues"]) == 2
+

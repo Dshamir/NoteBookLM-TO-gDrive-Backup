@@ -189,8 +189,13 @@ async def select_cutoff(body: CutoffBody):
     return {"ok": True}
 
 
+ALLOWED_PRESETS = {"empty", "stale", "oldest25", "oldest50"}
+
+
 @app.post("/api/notebooks/select-preset")
 async def select_preset(body: PresetBody):
+    if body.preset not in ALLOWED_PRESETS:
+        raise HTTPException(400, f"Unknown preset '{body.preset}'. Allowed: {', '.join(sorted(ALLOWED_PRESETS))}")
     count = db.select_preset(body.preset, body.only)
     return {"ok": True, "count": count}
 
@@ -270,14 +275,26 @@ async def retry(nb_id: str):
     return {"ok": True}
 
 
+def _safe_staging_dir(nb_id: str) -> Path:
+    if not nb_id or "/" in nb_id or "\\" in nb_id or ".." in nb_id:
+        raise HTTPException(400, "Invalid notebook ID")
+    target = (STAGING_DIR / nb_id).resolve()
+    if not target.is_relative_to(STAGING_DIR.resolve()):
+        raise HTTPException(400, "Invalid notebook ID")
+    return target
+
+
 @app.post("/api/notebooks/{nb_id}/restore")
 async def restore_notebook(nb_id: str):
     await _refuse_during_sign_in()
     if runner.running:
         raise HTTPException(409, "A run is in progress — wait until it finishes to restore.")
+    _safe_staging_dir(nb_id)
     row = db.get(nb_id)
     if not row:
         raise HTTPException(404, "Unknown notebook")
+    if not row.get("is_owner"):
+        raise HTTPException(403, "Shared notebooks cannot be restored (Invariant 2)")
     if row.get("present"):
         return {
             "ok": True,
@@ -288,7 +305,7 @@ async def restore_notebook(nb_id: str):
         }
 
     sources: list[dict[str, str]] = []
-    st_dir = STAGING_DIR / nb_id / "Sources"
+    st_dir = _safe_staging_dir(nb_id) / "Sources"
     if st_dir.exists():
         for p in sorted(st_dir.glob("*.md")):
             try:
@@ -331,11 +348,11 @@ async def restore_notebook(nb_id: str):
 
 @app.get("/api/notebooks/{nb_id}/content")
 async def notebook_content(nb_id: str):
+    nb_dir = _safe_staging_dir(nb_id)
     row = db.get(nb_id)
     if not row:
         raise HTTPException(404, "Unknown notebook")
-
-    manifest_file = STAGING_DIR / nb_id / "manifest.json"
+    manifest_file = nb_dir / "manifest.json"
     manifest = None
     if manifest_file.exists():
         try:
@@ -347,20 +364,22 @@ async def notebook_content(nb_id: str):
     notes: list[dict[str, Any]] = []
     audio_file: str | None = None
 
-    nb_dir = STAGING_DIR / nb_id
     if nb_dir.exists():
         src_dir = nb_dir / "Sources"
         if src_dir.exists():
             for p in sorted(src_dir.glob("*.*")):
-                sources.append({"name": p.name, "size": p.stat().st_size})
+                if p.is_file():
+                    sources.append({"name": p.name, "size": p.stat().st_size})
         note_dir = nb_dir / "Notes"
         if note_dir.exists():
             for p in sorted(note_dir.glob("*.*")):
-                notes.append({"name": p.name, "size": p.stat().st_size})
+                if p.is_file():
+                    notes.append({"name": p.name, "size": p.stat().st_size})
         for ext in (".wav", ".mp3", ".m4a"):
             for p in nb_dir.rglob(f"*{ext}"):
-                audio_file = p.name
-                break
+                if p.is_file():
+                    audio_file = p.name
+                    break
 
     stats = None
     if row.get("stats"):
@@ -383,11 +402,13 @@ async def notebook_content(nb_id: str):
 
 @app.get("/api/notebooks/{nb_id}/audio")
 async def notebook_audio(nb_id: str):
-    nb_dir = STAGING_DIR / nb_id
+    nb_dir = _safe_staging_dir(nb_id)
     if nb_dir.exists():
         for ext, mime in ((".wav", "audio/wav"), (".mp3", "audio/mpeg"), (".m4a", "audio/mp4")):
             for p in nb_dir.rglob(f"*{ext}"):
-                return FileResponse(p, media_type=mime, filename=p.name)
+                resolved = p.resolve()
+                if resolved.is_file() and resolved.is_relative_to(nb_dir.resolve()):
+                    return FileResponse(resolved, media_type=mime, filename=resolved.name)
     raise HTTPException(404, "No local audio file found for this notebook")
 
 
@@ -441,22 +462,28 @@ async def audit_archive():
     missing = 0
     issues: list[dict[str, Any]] = []
 
-    for nb in archived:
+    sem = asyncio.Semaphore(8)
+
+    async def _check(nb: dict[str, Any]) -> tuple[dict[str, Any], bool, str | None]:
         fid = nb.get("drive_folder_id")
         if not fid:
+            return nb, False, "Missing drive_folder_id"
+        async with sem:
+            try:
+                exists = await asyncio.to_thread(drive.folder_exists, fid)
+                if exists:
+                    return nb, True, None
+                return nb, False, "Folder not found in Drive"
+            except Exception as e:
+                return nb, False, str(e)
+
+    results = await asyncio.gather(*[_check(nb) for nb in archived]) if archived else []
+    for nb, ok, err in results:
+        if ok:
+            verified += 1
+        else:
             missing += 1
-            issues.append({"id": nb["id"], "title": nb["title"], "issue": "Missing drive_folder_id"})
-            continue
-        try:
-            exists = await asyncio.to_thread(drive.folder_exists, fid)
-            if exists:
-                verified += 1
-            else:
-                missing += 1
-                issues.append({"id": nb["id"], "title": nb["title"], "issue": "Folder not found in Drive"})
-        except Exception as e:
-            missing += 1
-            issues.append({"id": nb["id"], "title": nb["title"], "issue": str(e)})
+            issues.append({"id": nb["id"], "title": nb["title"], "issue": err})
 
     db.add_event("info", f"Drive archive audit: {verified}/{total} verified intact, {missing} issues")
     return {"total": total, "verified": verified, "missing": missing, "issues": issues[:20]}

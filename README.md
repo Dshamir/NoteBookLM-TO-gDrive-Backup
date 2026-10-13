@@ -47,6 +47,12 @@ Runs locally in **Docker** with a sleek **Web UI** for selecting notebooks and m
 - 🗂️ **Grid & Table Views**: Seamlessly switch between a compact tabular view and visual card tiles with generative cover art.
 - 🎨 **Generative Cover Art Thumbnails**: Deterministic mesh gradients paired with custom floating 3D emoji badges and status indicators.
 - 🔎 **Multi-Dimensional Search**: Dynamic Year chips with live counts, Month selector (`Jan`–`Dec`), and auto-clustered Topic chips.
+- 📊 **Real-time Quota Gauge & Capacity Monitor**: Visual capacity meter tracking account usage against the 500-notebook quota with safety badges (Green/Amber/Red) and total Drive storage counter.
+- ⚡ **Quick Cleanup Presets**: 1-click pills for `Empty Drafts (0 sources)`, `Stale (>6 mo)`, `Oldest 25`, and `Oldest 50` plus `Select Filtered` button.
+- 🔁 **1-Click "Restore to NotebookLM"**: Reconstitute deleted or archived notebooks back into NotebookLM with original text sources intact.
+- 📑 **Catalog Export & Drive Auditor**: Export full inventory as CSV/JSON and audit Google Drive folder integrity with bounded parallel verification.
+- 🎧 **In-Modal Content Preview & Audio Player**: Inspect backed-up text sources/notes and stream audio overview podcasts directly in the dashboard.
+- 🔔 **Desktop Notifications**: HTML5 browser and Windows notification alerts for completed runs and auth-needed pauses.
 - 📅 **Date Cutoff Batch Selection**: Select and batch archive notebooks created before any specified date (e.g. freeing early 2026 slots).
 - 🔍 **In-App Notebook Inspector**: 1-click modal viewing full metadata, verification status, file breakdowns, and studio artifact counts.
 - ↗️ **Direct Links**: One-click opening of the live notebook in NotebookLM (`↗ Live`) or Google Drive (`📁 Drive`).
