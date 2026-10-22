@@ -129,3 +129,48 @@ def test_audit_endpoint(monkeypatch):
     assert data["missing"] == 2
     assert len(data["issues"]) == 2
 
+
+def test_list_notebooks_reconciles_mru_evicted_and_delete_removes_recent():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app import nlm_service as nlm
+
+    from .conftest import make_nb
+
+    nb_top = make_nb("nb_top", "Top MRU", 2026)
+    nb_evicted = make_nb("nb_evicted", "Evicted from MRU", 2026)
+    removed_recent: list[str] = []
+    deleted_ids: list[str] = []
+    by_id = {"nb_top": nb_top, "nb_evicted": nb_evicted}
+
+    async def fake_list():
+        return [nb_top]
+
+    async def fake_get_or_none(nid: str):
+        return by_id.get(nid)
+
+    async def fake_remove_from_recent(nid: str):
+        removed_recent.append(nid)
+
+    async def fake_delete(nid: str):
+        deleted_ids.append(nid)
+        by_id.pop(nid, None)
+
+    fake_client = SimpleNamespace(
+        notebooks=SimpleNamespace(
+            list=fake_list,
+            get_or_none=fake_get_or_none,
+            remove_from_recent=fake_remove_from_recent,
+            delete=fake_delete,
+        )
+    )
+
+    items = asyncio.run(nlm.list_notebooks(fake_client, ["nb_top", "nb_evicted", "nb_truly_gone"]))
+    assert {it["id"] for it in items} == {"nb_top", "nb_evicted"}
+
+    asyncio.run(nlm.delete_notebook(fake_client, "nb_evicted"))
+    assert removed_recent == ["nb_evicted"]
+    assert deleted_ids == ["nb_evicted"]
+
+

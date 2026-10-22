@@ -51,7 +51,6 @@ async def call(method: str, path: str, body: dict[str, Any] | None = None) -> di
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.request(method, url, headers={"Authorization": f"Bearer {conf['token']}"}, json=body)
     except httpx.HTTPError as e:
-        HELPER_CONF.unlink(missing_ok=True)
         raise HelperUnavailable("The reconnect helper did not answer (stopped or restarted?).") from e
     if resp.status_code == 401:
         raise HelperUnavailable("The reconnect helper restarted - reload this page and try again.")

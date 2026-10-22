@@ -54,6 +54,10 @@ switch ($Action) {
   }
   "start" {
     if (Test-Helper) { Write-Host "Reconnect helper already running."; exit 0 }
+    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+      Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Milliseconds 300
     if (Test-Path $conf) { Remove-Item $conf -Force -ErrorAction SilentlyContinue }   # stale
     $uv = Find-Uv
     if (-not $uv) { throw "uv is not installed yet - run '.\nlm2drive login' once (it installs uv), then retry." }
@@ -72,7 +76,14 @@ switch ($Action) {
     $inner = "`"$uv`" " + ($argList -join " ") + " > `"$out`" 2> `"$err`""
     $cmdLine = "cmd.exe /c `"$inner`""
     $created = $null
-    try { $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmdLine; CurrentDirectory = (Split-Path $PSScriptRoot) } -ErrorAction Stop } catch { }
+    try {
+      $si = New-CimInstance -ClassName Win32_ProcessStartup -Property @{ ShowWindow = [uint16]0 } -ClientOnly
+      $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = $cmdLine
+        CurrentDirectory = (Split-Path $PSScriptRoot)
+        ProcessStartupInformation = $si
+      } -ErrorAction Stop
+    } catch { }
     if (-not $created -or $created.ReturnValue -ne 0) {
       Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "`"$inner`"") -WindowStyle Hidden | Out-Null
     }
@@ -97,20 +108,15 @@ switch ($Action) {
     $me = "$env:USERDOMAIN\$env:USERNAME"
     $psArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Action start -DataDir `"$nlmDir`" -Browser $Browser -Port $Port"
     if ($Version) { $psArgs += " -Version $Version" }
-    $act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
-    $trg1 = New-ScheduledTaskTrigger -AtLogOn -User $me
-    $trg2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 2)
-    $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
+    $vbsPath = Join-Path $dataRoot "start-helper-hidden.vbs"
+    $escapedPs = $psArgs.Replace('"', '""')
+    $vbsContent = "CreateObject(""WScript.Shell"").Run ""powershell.exe $escapedPs"", 0, False`r`n"
+    [System.IO.File]::WriteAllText($vbsPath, $vbsContent, [System.Text.Encoding]::ASCII)
+    $act = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B //NoLogo `"$vbsPath`""
+    $trg = New-ScheduledTaskTrigger -AtLogOn -User $me
+    $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
     $pri = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger @($trg1, $trg2) -Settings $set -Principal $pri -Force | Out-Null
-
-    # Also register in Windows Startup folder for redundancy across all logon scenarios
-    $startupFolder = [System.IO.Path]::Combine($env:APPDATA, "Microsoft\Windows\Start Menu\Programs\Startup")
-    if (Test-Path $startupFolder) {
-      $startupCmd = [System.IO.Path]::Combine($startupFolder, "nlm2drive-helper.cmd")
-      $cmdText = "@echo off`r`npowershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Action start -DataDir `"$nlmDir`" -Browser $Browser -Port $Port`r`n"
-      [System.IO.File]::WriteAllText($startupCmd, $cmdText, [System.Text.Encoding]::ASCII)
-    }
+    Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger $trg -Settings $set -Principal $pri -Force | Out-Null
     Write-Host "Installed: the Reconnect helper now starts automatically at every Windows logon."
   }
   "uninstall" {

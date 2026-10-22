@@ -47,18 +47,15 @@ Read this first when resuming work on this project.
 - `notebooklm login` is unreliable (ADR-007). Use `scripts/nlm_login.py`.
 - NotebookLM is also served at `notebook.google.com`; cookies exist for both hosts.
 
-## Current state (2026-10-13)
+## Current state (2026-10-22)
 - v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
-- 2026-10-13: Extended Suite & Adversarial Hardening (82 tests, ruff, mypy, smoke all green):
+- 2026-10-22: MRU Tombstone Reconciliation & Auto-Sync (ADR-012, 83 tests, ruff, mypy, smoke all green):
+  - **MRU Tombstone Reconciliation**: Google's `ListRecentlyViewedProjects` (`wXbhsf`) RPC has a 500-slot MRU buffer that retains deleted notebook tombstones, pushing older live notebooks past slot 500 when new notebooks are created. `nlm_service.list_notebooks` now probes any previously-present notebook omitted by `list()` via `get_or_none(id)` before marking it absent, and `delete_notebook` calls `remove_from_recent(id)` before deletion.
+  - **Auto-Sync on Page Load**: `GET /api/auth/status` upserts the live listing into SQLite (`state.db`) and emits a `"refresh"` event so opening or reloading the dashboard automatically surfaces newly created notebooks.
+  - **Windowless Host Helper**: `scripts/helper.ps1` launches the helper via WMI (`Win32_Process.Create`) with `Win32_ProcessStartup(ShowWindow=0)` (`SW_HIDE`) and uses `wscript.exe //B //NoLogo` for the Windows logon task so no console window ever flashes.
   - **Adversarial Hardening**: Invariant 2 enforced on restore (HTTP 403 for shared notebooks), path traversal prevented (`_safe_staging_dir` on content/audio/restore), preset validation (`ALLOWED_PRESETS`), bounded parallel Drive archive auditor (`asyncio.Semaphore(8)`).
-  - **Hardened Host Helper & Watchdog**: Task Scheduler watchdog (repeating every 2 min), Windows Startup folder script, daemon `SIGINT` immunity on Windows, stale config cleanup, seamless in-browser reconnect.
-  - **Quota Gauge & Capacity Bar**: real-time capacity meter (`413 / 500 Notebooks · 82%`) with color-coded safety badges (Green/Amber/Red) and total Drive storage counter.
-  - **Quick Cleanup Presets**: 1-click pills for `Empty Drafts (0)`, `Stale (>6 mo)`, `Oldest 25`, `Oldest 50` via `POST /api/notebooks/select-preset` + `Select Filtered` button.
-  - **1-Click "Restore to NotebookLM"**: `POST /api/notebooks/{id}/restore` reconstitutes deleted/archived notebooks back into NotebookLM with original text sources.
-  - **Catalog Export & Auditor**: `GET /api/export/csv`, `GET /api/export/json`, and Drive integrity auditor (`POST /api/audit`).
-  - **In-Modal Content Preview & HTML5 Audio Player**: preview backed-up sources/notes and listen to audio overview podcasts inside the inspector modal.
-  - **Desktop Notifications**: HTML5 Notifications API alerts on run finish or auth-needed pauses.
-- Account mix: 413 present notebooks in 2026 (1 shared), 85 deleted/archived. Drive connected, Google session authenticated.
+  - **Extended UI Suite**: Topbar Quota Gauge (`418 / 500 Notebooks · 84%`), Quick Cleanup Presets (`Empty Drafts`, `Stale (>6 mo)`, `Oldest 25`, `Oldest 50`), 1-Click Restore to NotebookLM, Catalog Export (CSV/JSON), Drive Integrity Auditor, In-Modal Content Preview & HTML5 Audio Player, and Desktop Notifications.
+- Account mix: 418 present notebooks in 2026 (1 shared), 85 deleted/archived. Drive connected, Google session authenticated.
 
 ## Open ideas / backlog
 - Optional scheduled runs (e.g. monthly: archive notebooks older than N months).
@@ -68,4 +65,4 @@ Read this first when resuming work on this project.
 - Verify on the next long run whether waiting for the `PSIDRTS` cookies at login prevents the ~2 h revocation.
 - Freeing more slots from 2026 can now be done via the date cutoff selector (e.g. before March 2026), then the owner pressing **Archive & delete** (the agent never starts deleting runs on its own).
 - Housekeeping not done: switch the commit email to the GitHub noreply address; upload the banner as the repo social preview (manual, GitHub settings).
-- `scripts/helper.ps1 start` launches the helper through WMI so it survives the caller and never blocks captured output; keep that if you touch the launcher.
+- `scripts/helper.ps1 start` launches the helper through WMI (`ShowWindow=0`) so it survives the caller, never flashes a console window, and never blocks captured output; keep that if you touch the launcher.

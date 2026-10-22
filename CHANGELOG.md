@@ -37,9 +37,9 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
   - Embedded HTML5 audio player (`GET /api/notebooks/{nb_id}/audio`) to listen to generated audio overviews and podcasts inside the dashboard.
 - **Desktop Notifications**:
   - Browser/Windows notification alerts on run completion and session-expiry pauses via the HTML5 Notifications API (`🔔 Alerts` toggle).
-- **Hardened Background Reconnect Helper & Watchdog**:
-  - Windows Task Scheduler watchdog trigger with automatic restart ensuring the helper is always active in the background.
-  - Windows Startup folder auto-start integration for dual-layered boot resilience.
+- **Hardened Background Reconnect Helper**:
+  - Launched through WMI (`Win32_Process.Create`) with `Win32_ProcessStartup(ShowWindow=0)` (`SW_HIDE`) so no console window flashes on start.
+  - Windows logon auto-start uses `wscript.exe //B //NoLogo` (GUI subsystem, zero console popup).
   - Daemon signal immunity on Windows (`SIGINT` ignored) preventing accidental shutdown when parent console windows close.
   - Stale helper config auto-cleanup and streamlined browser-only reconnect messaging.
 - **Adversarial Hardening & Security Guards**:
@@ -48,9 +48,12 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
   - **Audio Path Boundary Verification**: `GET /api/notebooks/{nb_id}/audio` validates that audio files are resolved strictly within the notebook staging sandbox (`is_relative_to`), guarding against symlink escapes.
   - **Input Validation**: `POST /api/notebooks/select-preset` strictly validates against allowed presets (`empty`, `stale`, `oldest25`, `oldest50`), rejecting unknown inputs with HTTP 400.
   - **Bounded Parallel Auditor**: `POST /api/audit` parallelizes Drive folder checks with an `asyncio.Semaphore(8)` concurrency limiter and graceful per-folder exception handling.
-- Quality gates, all run in the container: `.\nlm2drive lint` (ruff), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). 82 tests passing cleanly.
+- Quality gates, all run in the container: `.\nlm2drive lint` (ruff), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). 83 tests passing cleanly.
 ### Fixed
-- `.\nlm2drive helper start` (and `up`) no longer blocks callers that capture its output, and the helper is no longer killed when the calling terminal/CI step/agent task ends: it is launched through WMI (`Win32_Process.Create`) with `cmd` doing the log redirection, instead of `Start-Process -RedirectStandard*`.
+- **MRU Tombstone Reconciliation & Auto-Sync on Page Load** (ADR-012):
+  - Google's `ListRecentlyViewedProjects` (`wXbhsf`) RPC has a 500-slot MRU window that retains deleted notebook tombstones, pushing older live notebooks out of `client.notebooks.list()` when new notebooks are created. `nlm_service.list_notebooks` now probes any previously-present notebook omitted by `list()` via `get_or_none(id)` before marking it absent, and `delete_notebook` calls `remove_from_recent(id)` before deletion.
+  - `GET /api/auth/status` now upserts the fetched notebook listing into SQLite (`state.db`) and emits a `"refresh"` event so opening or reloading the dashboard automatically surfaces newly created notebooks without requiring a manual **Refresh list** click.
+- `.\nlm2drive helper start` (and `up`) no longer blocks callers that capture its output, and the helper is no longer killed when the calling terminal/CI step/agent task ends: it is launched through WMI (`Win32_Process.Create`) with `ShowWindow=0` and `cmd` doing the log redirection, instead of `Start-Process -RedirectStandard*`.
 ### Changed
 - Lint/type clean-up: exception chaining on API errors, blocking directory ops in the exporter moved off the event loop, md5 marked as a non-security checksum, `typing` fixes.
 - Safety: `Runner._finish` and `_process_with_retries` now refuse to continue (nothing is deleted) if a notebook row has vanished from the state DB.

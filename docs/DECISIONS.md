@@ -132,3 +132,17 @@ What went wrong in the app (the "stuck" UI):
 **Alternatives rejected.** (1) Run Chrome inside the container with noVNC: heavy, and Google flags such sign-ins. (2) Let the browser call a localhost helper directly: needs CORS + CSRF/DNS-rebinding handling on a service that launches processes. (3) Passing the host's Chrome profile cookies into the container: more secret handling for no gain. (4) A true "no-touch" renewal (master token, `notebooklm auth refresh`): still a user decision, see ADR-010.
 
 **Consequences.** One click (plus the Google sign-in itself) recovers a paused run. The helper is another local process, bound to loopback and token-protected, with the same trust level as the user's own shell. It can only start the login script, nothing else.
+
+
+## ADR-012 · Reconciling `ListRecentlyViewedProjects` 500-MRU tombstones and auto-syncing on page load (2026-10-22)
+**Context.** After archiving and deleting 85 notebooks, creating new notebooks in NotebookLM did not increase the `client.notebooks.list()` count above `412–413`, and reloading the dashboard in the browser did not surface newly created notebooks without manually clicking **Refresh list**.
+
+Live RPC inspection revealed two causes:
+1. **`ListRecentlyViewedProjects` (`wXbhsf`) 500-slot MRU window includes deleted tombstones**: Because `export_notebook` calls `GET_NOTEBOOK` on each notebook immediately before `DELETE_NOTEBOOK`, the deleted notebook IDs sit near the top of Google's 500-slot recently-viewed buffer. When `ListRecentlyViewedProjects` executes, Google fetches the top 500 MRU entries and filters out deleted tombstones (`500 - 88 = 412`), pushing older live notebooks past slot 500 whenever new notebooks are created. Direct `GET_NOTEBOOK` (`get_or_none`) calls confirmed those omitted notebooks still existed (`200 OK`), while the 85 deleted ones returned `GrpcStatusCode 5 (NOT_FOUND)`.
+2. **Page load discarded the fetched listing**: `GET /api/auth/status` already called `client.notebooks.list()` to check session health on page load, but discarded the list instead of upserting it into SQLite (`state.db`).
+
+**Decision.**
+- In `nlm_service.list_notebooks(client, known_present_ids)`, any notebook ID in `known_present_ids` missing from `client.notebooks.list()` is probed concurrently (`asyncio.Semaphore(5)`) via `client.notebooks.get_or_none(id)`. Live notebooks pushed past the 500-MRU window are preserved; genuinely deleted ones (`None`) are marked `present=0`.
+- In `nlm_service.delete_notebook(client, nb_id)`, call `client.notebooks.remove_from_recent(nb_id)` (`fejl7e`) before `client.notebooks.delete(nb_id)` so newly deleted notebooks do not occupy MRU slots.
+- In `main._auth_status`, upsert the fetched listing into `state.db` and publish a `"refresh"` event whenever the session is checked while no run is active.
+

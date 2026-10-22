@@ -135,13 +135,21 @@ def _run_auth_view() -> dict | None:
             "email": last.get("email")}
 
 
+def _known_present_ids() -> list[str]:
+    return [r["id"] for r in db.list_notebooks() if r.get("present") and r.get("stage") != "DELETED"]
+
+
 async def _auth_status(force: bool = False) -> dict:
     if (view := _run_auth_view()) is not None:
         runner.nudge()  # a manual re-check while the run waits for a sign-in = look right now
         return view
-    if not force and (hit := _cached("auth", 120)):
+    if not force and (hit := _cached("auth", 30)):
         return hit
-    return _store("auth", await nlm.account_status())
+    st, items = await nlm.account_status_with_items(_known_present_ids())
+    if st.get("ok") and items is not None:
+        db.upsert_listing(items, settings.get().years)
+        bus.publish({"type": "refresh"})
+    return _store("auth", st)
 
 
 async def _drive_status(force: bool = False) -> dict:
@@ -206,7 +214,7 @@ async def refresh():
         raise HTTPException(409, "A run is in progress — it owns the NotebookLM session. Refresh the list after it finishes.")
     try:
         async with nlm.open_client() as client:
-            items = await nlm.list_notebooks(client)
+            items = await nlm.list_notebooks(client, _known_present_ids())
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"Could not list notebooks: {type(e).__name__}: {e}"[:400]) from e
     db.upsert_listing(items, settings.get().years)

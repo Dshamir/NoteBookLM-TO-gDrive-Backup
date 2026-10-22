@@ -154,8 +154,13 @@
   async function checkAuth(force = false) {
     $("#nlm-sub").textContent = "Checking session…";
     $("#nlm-dot").className = "dot warn";
-    try { renderAuth(await api(`/api/auth/status${force ? "?force=true" : ""}`)); }
-    catch (e) { renderAuth({ ok: false, error: e.message }); }
+    try {
+      const a = await api(`/api/auth/status${force ? "?force=true" : ""}`);
+      renderAuth(a);
+      if (a.ok && !a.run_owned) {
+        await Promise.all([loadNotebooks(), loadSummary()]);
+      }
+    } catch (e) { renderAuth({ ok: false, error: e.message }); }
   }
 
   // ------------------------------------------------------------------ reconnect (a host helper opens Chrome)
@@ -767,7 +772,7 @@
       if (ev.type === "status" && ev.status) renderStatus(ev.status);
       else if (ev.type === "event") addLog(ev.event);
       else if (ev.type === "notebook" && ev.row) { state.notebooks.set(ev.row.id, ev.row); state.flash.add(ev.row.id); queueRender(); }
-      else if (ev.type === "refresh") loadNotebooks();
+      else if (ev.type === "refresh") { loadNotebooks(); loadSummary(); }
       else if (ev.type === "run_finished") { loadRuns(); loadSummary(); loadNotebooks(); toast(`Run ${ev.status}`, ev.status === "completed" ? "ok" : "warn"); }
     };
     es.onerror = () => { es.close(); setTimeout(connectSSE, 2500); };

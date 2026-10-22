@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 import shutil
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -138,26 +138,53 @@ async def _maybe(cb: ProgressFn | None, msg: str) -> None:
 
 # ---------------------------------------------------------------- listing
 
-async def account_status() -> dict:
+async def account_status_with_items(known_present_ids: Iterable[str] = ()) -> tuple[dict, list[dict] | None]:
     st: dict[str, Any] = {"session": has_session(), "ok": False, "email": None, "notebooks": None, "error": None}
     if not st["session"]:
-        st["error"] = "No session — run ./nlm2drive.sh login"
-        return st
+        st["error"] = "No session — press Reconnect to sign in"
+        return st, None
     try:
         async with open_client() as client:
             try:
                 st["email"] = await client.get_account_email()
             except Exception:
                 pass
-            nbs = await client.notebooks.list()
-            st.update(ok=True, notebooks=len(nbs))
+            items = await list_notebooks(client, known_present_ids)
+            st.update(ok=True, notebooks=len(items))
+            return st, items
     except Exception as e:
         st["error"] = f"{type(e).__name__}: {e}"[:400]
+        return st, None
+
+
+async def account_status(known_present_ids: Iterable[str] = ()) -> dict:
+    st, _ = await account_status_with_items(known_present_ids)
     return st
 
 
-async def list_notebooks(client) -> list[dict]:
-    return [notebook_to_dict(nb) for nb in await client.notebooks.list()]
+async def list_notebooks(client, known_present_ids: Iterable[str] = ()) -> list[dict]:
+    items = [notebook_to_dict(nb) for nb in await client.notebooks.list()]
+    seen = {it["id"] for it in items}
+    missing = [nid for nid in known_present_ids if nid not in seen]
+    if missing and hasattr(client.notebooks, "get_or_none"):
+        sem = asyncio.Semaphore(5)
+
+        async def _probe_missing(nid: str) -> dict | None:
+            async with sem:
+                try:
+                    nb = await client.notebooks.get_or_none(nid)
+                    return notebook_to_dict(nb) if nb else None
+                except Exception as e:  # noqa: BLE001
+                    if is_auth_error(e):
+                        raise
+                    return None
+
+        recovered = await asyncio.gather(*[_probe_missing(nid) for nid in missing])
+        for it in recovered:
+            if it and it["id"] not in seen:
+                items.append(it)
+                seen.add(it["id"])
+    return items
 
 
 async def probe(client) -> int:
@@ -434,6 +461,11 @@ def render_readme(meta: dict, sources: list[dict], notes: list[dict], artifacts:
 
 
 async def delete_notebook(client, nb_id: str) -> None:
+    if hasattr(client.notebooks, "remove_from_recent"):
+        try:
+            await client.notebooks.remove_from_recent(nb_id)
+        except Exception:  # noqa: BLE001
+            pass
     await client.notebooks.delete(nb_id)
     # Confirm it is gone.
     still = await client.notebooks.get_or_none(nb_id)
@@ -457,7 +489,7 @@ async def create_test_notebook(client) -> dict:
     return notebook_to_dict(fresh)
 
 
-__all__ = ["open_client", "account_status", "list_notebooks", "export_notebook", "delete_notebook",
-           "get_notebook", "create_test_notebook", "has_session", "IncompleteExport",
+__all__ = ["open_client", "account_status", "account_status_with_items", "list_notebooks", "export_notebook",
+           "delete_notebook", "get_notebook", "create_test_notebook", "has_session", "IncompleteExport",
            "NotebookLMAuthError", "is_auth_error", "probe", "storage_mtime",
            "human_bytes", "safe_name", "_parse_iso"]
