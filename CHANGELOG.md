@@ -49,7 +49,9 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
   - **Input Validation**: `POST /api/notebooks/select-preset` strictly validates against allowed presets (`empty`, `stale`, `oldest25`, `oldest50`), rejecting unknown inputs with HTTP 400.
   - **Bounded Parallel Auditor**: `POST /api/audit` parallelizes Drive folder checks with an `asyncio.Semaphore(8)` concurrency limiter and graceful per-folder exception handling.
 - Quality gates, all run in the container: `.\nlm2drive lint` (ruff), `typecheck` (mypy), `smoke` (read-only live checks, `scripts/smoke.py`) and `check` (everything). 83 tests passing cleanly.
+- **Dual PDF + PPTX Slide Deck Studio Export**: `ARTIFACT_PLAN["slide_deck"]` now exports both `.pdf` (`output_format="pdf"`) and editable PowerPoint `.pptx` (`output_format="pptx"`) into `studio/slides/`, with graceful fallback if `.pptx` is unavailable on older decks.
 ### Fixed
+- **Detached Docker Desktop Engine Startup (`nlm2drive.sh::ensure_engine`)**: Launching `Docker Desktop.exe` via WMI (`Win32_Process.Create`) ensures Docker Desktop runs outside the caller's Windows Job Object and is not terminated when the calling shell or agent command exits.
 - **MRU Tombstone Reconciliation & Auto-Sync on Page Load** (ADR-012):
   - Google's `ListRecentlyViewedProjects` (`wXbhsf`) RPC has a 500-slot MRU window that retains deleted notebook tombstones, pushing older live notebooks out of `client.notebooks.list()` when new notebooks are created. `nlm_service.list_notebooks` now probes any previously-present notebook omitted by `list()` via `get_or_none(id)` before marking it absent, and `delete_notebook` calls `remove_from_recent(id)` before deletion.
   - `GET /api/auth/status` now upserts the fetched notebook listing into SQLite (`state.db`) and emits a `"refresh"` event so opening or reloading the dashboard automatically surfaces newly created notebooks without requiring a manual **Refresh list** click.

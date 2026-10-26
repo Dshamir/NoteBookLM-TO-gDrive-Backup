@@ -204,7 +204,8 @@ ARTIFACT_PLAN: dict[str, tuple[str, list[tuple[str, str, dict[str, str]]], bool]
     "audio": ("audio", [("download_audio", ".m4a", {})], True),
     "video": ("video", [("download_video", ".mp4", {})], True),
     "report": ("reports", [("download_report", ".md", {})], False),
-    "slide_deck": ("slides", [("download_slide_deck", ".pdf", {"output_format": "pdf"})], False),
+    "slide_deck": ("slides", [("download_slide_deck", ".pdf", {"output_format": "pdf"}),
+                              ("download_slide_deck", ".pptx", {"output_format": "pptx"})], False),
     "infographic": ("infographics", [("download_infographic", ".png", {})], False),
     "quiz": ("quizzes", [("download_quiz", ".json", {"output_format": "json"}),
                          ("download_quiz", ".md", {"output_format": "markdown"})], False),
@@ -348,8 +349,11 @@ async def export_notebook(client, nb: dict, dest: Path, *, include_media: bool =
             except Exception as e:
                 _reraise_if_auth(e)
                 msg = f"{type(e).__name__}: {e}"[:300]
-                if ext == ".md" and kind in ("quiz", "flashcards") and entry["files"]:
-                    stats["warnings"].append(f"{kind} '{a.title}' markdown render failed: {msg}")
+                if (
+                    (ext == ".md" and kind in ("quiz", "flashcards"))
+                    or (ext == ".pptx" and kind == "slide_deck")
+                ) and entry["files"]:
+                    stats["warnings"].append(f"{kind} '{a.title}' {ext} export failed: {msg}")
                     continue
                 entry["error"] = msg
                 problems.append(f"{kind} '{a.title}': {msg}")

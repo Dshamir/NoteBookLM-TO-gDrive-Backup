@@ -43,16 +43,17 @@ Read this first when resuming work on this project.
 - `NotebookLMClient.from_storage(keepalive=900)` is an async context manager. Storage is `$NOTEBOOKLM_HOME/profiles/default/storage_state.json`.
 - Notebook fields: `id, title, emoji, created_at, modified_at, last_viewed_at, sources_count, is_owner, role`.
 - `notebooks.list/get/get_or_none/get_summary/create/delete`; `sources.list/get_fulltext(output_format='markdown'|'text')/add_text(..., wait=True)`; `notes.list/create`; `mind_maps.list/get_tree`; `chat.get_history(nb, limit)` returns `[(q, a)]`.
-- `artifacts.list`; `artifacts.download_{audio,video,report,slide_deck,infographic,quiz,flashcards,data_table,mind_map}(nb_id, path, artifact_id, **kw)`. Quiz/flashcards take `output_format='json'|'markdown'`; slides take `output_format='pdf'`.
+- `artifacts.list`; `artifacts.download_{audio,video,report,slide_deck,infographic,quiz,flashcards,data_table,mind_map}(nb_id, path, artifact_id, **kw)`. Quiz/flashcards take `output_format='json'|'markdown'`; slides take `output_format='pdf'|'pptx'` (both exported into `studio/slides/`).
 - `notebooklm login` is unreliable (ADR-007). Use `scripts/nlm_login.py`.
 - NotebookLM is also served at `notebook.google.com`; cookies exist for both hosts.
 
-## Current state (2026-10-22)
+## Current state (2026-10-26)
 - v1.0.1 (session-expiry fix) on top of v1.0.0, working end to end.
-- 2026-10-22: MRU Tombstone Reconciliation & Auto-Sync (ADR-012, 83 tests, ruff, mypy, smoke all green):
+- 2026-10-26: MRU Tombstone Reconciliation, Auto-Sync & Complete Studio Export (ADR-012, 83 tests, ruff, mypy, smoke all green):
   - **MRU Tombstone Reconciliation**: Google's `ListRecentlyViewedProjects` (`wXbhsf`) RPC has a 500-slot MRU buffer that retains deleted notebook tombstones, pushing older live notebooks past slot 500 when new notebooks are created. `nlm_service.list_notebooks` now probes any previously-present notebook omitted by `list()` via `get_or_none(id)` before marking it absent, and `delete_notebook` calls `remove_from_recent(id)` before deletion.
   - **Auto-Sync on Page Load**: `GET /api/auth/status` upserts the live listing into SQLite (`state.db`) and emits a `"refresh"` event so opening or reloading the dashboard automatically surfaces newly created notebooks.
-  - **Windowless Host Helper**: `scripts/helper.ps1` launches the helper via WMI (`Win32_Process.Create`) with `Win32_ProcessStartup(ShowWindow=0)` (`SW_HIDE`) and uses `wscript.exe //B //NoLogo` for the Windows logon task so no console window ever flashes.
+  - **Windowless Host Helper & Detached Docker Engine**: `scripts/helper.ps1` launches the helper via WMI (`Win32_Process.Create`) with `Win32_ProcessStartup(ShowWindow=0)` (`SW_HIDE`) and uses `wscript.exe //B //NoLogo` for the Windows logon task so no console window ever flashes. `nlm2drive.sh::ensure_engine` also launches `Docker Desktop.exe` via WMI (`Win32_Process.Create`) so Docker Desktop survives when the caller shell or agent command session exits.
+  - **Dual PDF + PPTX Slide Deck Export**: `ARTIFACT_PLAN["slide_deck"]` exports both `.pdf` (`output_format="pdf"`) and `.pptx` (`output_format="pptx"`) into `studio/slides/`, with non-fatal fallback if `.pptx` is unavailable on older decks.
   - **Adversarial Hardening**: Invariant 2 enforced on restore (HTTP 403 for shared notebooks), path traversal prevented (`_safe_staging_dir` on content/audio/restore), preset validation (`ALLOWED_PRESETS`), bounded parallel Drive archive auditor (`asyncio.Semaphore(8)`).
   - **Extended UI Suite**: Topbar Quota Gauge (`418 / 500 Notebooks · 84%`), Quick Cleanup Presets (`Empty Drafts`, `Stale (>6 mo)`, `Oldest 25`, `Oldest 50`), 1-Click Restore to NotebookLM, Catalog Export (CSV/JSON), Drive Integrity Auditor, In-Modal Content Preview & HTML5 Audio Player, and Desktop Notifications.
 - Account mix: 418 present notebooks in 2026 (1 shared), 85 deleted/archived. Drive connected, Google session authenticated.

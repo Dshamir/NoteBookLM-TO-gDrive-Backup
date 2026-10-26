@@ -61,20 +61,29 @@ Runs locally in **Docker** with a sleek **Web UI** for selecting notebooks and m
 
 ## 📂 What you get
 
-Your backups are converted into clean, browsable folders on Google Drive.
+Your backups are converted into clean, browsable folders on Google Drive (`My Drive/NotebookLM/Archive/<Year>/<Title> (<id>)/`, or `G:\My Drive\NotebookLM\Archive\` with Google Drive for Desktop):
 
 ```text
 My Drive/NotebookLM/Archive/            (= G:\My Drive\NotebookLM\Archive with Drive for Desktop)
 ├── _catalog.md / _catalog.csv          # Index of every archived notebook (status, size, link)
 ├── 2024/
-│   └── 2024-09-27 My research [3c775e3c]/
+│   └── My research (3c775e3c)/
 │       ├── README.md                   # Summary, source table, links to everything below
 │       ├── metadata.json               # Notebook metadata + export stats
 │       ├── manifest.json               # SHA256 + MD5 + size of every file (used for verification)
 │       ├── sources/01 - <title>.md …   # Full extracted text of each source (+ index.json)
-│       ├── notes/*.md                  # Saved notes
-│       ├── studio/audio/*.m4a  video/*.mp4  reports/*.md  slides/*.pdf
-│       │        quizzes/  flashcards/  data-tables/*.csv  mind-maps/*.json
+│       ├── notes/*.md                  # Saved notes (+ index.json)
+│       ├── studio/
+│       │   ├── audio/*.m4a             # Audio Overview podcasts
+│       │   ├── video/*.mp4             # Video Overviews
+│       │   ├── slides/*.pdf + *.pptx   # Slide Decks (both PDF and PowerPoint)
+│       │   ├── reports/*.md            # Briefing Docs, Study Guides, FAQs, Reports
+│       │   ├── infographics/*.png      # High-res Infographics
+│       │   ├── mind-maps/*.json        # Interactive & note-backed Mind Map node trees
+│       │   ├── quizzes/*.json + *.md   # Quizzes (structured JSON + readable Markdown)
+│       │   ├── flashcards/*.json + *.md# Flashcards (structured JSON + readable Markdown)
+│       │   ├── data-tables/*.csv       # Data Tables
+│       │   └── index.json              # Full Studio artifact inventory
 │       └── chat/history.md + history.json
 └── 2025/…
 ```

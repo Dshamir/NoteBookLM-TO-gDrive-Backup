@@ -48,7 +48,7 @@ flowchart LR
 | `scripts/helper.ps1` | start / stop / status / install (logon task) / uninstall for that helper |
 | `app/reconnect.py` | Container-side client for the helper (port + token from `/data/helper.json`; every failure becomes `HelperUnavailable` with instructions) |
 | `scripts/smoke.py` | Read-only live checks against the running stack (`.\nlm2drive smoke`) |
-| `nlm2drive.sh` | Orchestrator (setup/login/up/down/run/...). Uses Docker Desktop's `docker.exe`, starts the engine if needed |
+| `nlm2drive.sh` | Orchestrator (setup/login/up/down/run/...). Uses Docker Desktop's `docker.exe`, starts the engine via WMI (`Win32_Process.Create`) if needed |
 | `nlm2drive.cmd` | Windows launcher: runs `nlm2drive.sh` through Git Bash (fallback: WSL) |
 
 ## Per-notebook pipeline (stage machine)
@@ -127,7 +127,7 @@ sequenceDiagram
 | Metadata + summary | `notebooks.get_summary` | `metadata.json`, `README.md` |
 | Sources | `sources.list`, `sources.get_fulltext(markdown→text)` | `sources/NN - title.md` + `index.json` (type, URL, Drive ID) |
 | Notes | `notes.list` | `notes/*.md` + `index.json` |
-| Studio artifacts | `artifacts.list`, `download_*` | audio `.m4a`, video `.mp4`, report `.md`, slides `.pdf`, infographic `.png`, quiz/flashcards `.json+.md`, data table `.csv`, mind map `.json` |
+| Studio artifacts | `artifacts.list`, `download_*` | audio `.m4a`, video `.mp4`, report `.md`, slides `.pdf+.pptx`, infographic `.png`, quiz/flashcards `.json+.md`, data table `.csv`, mind map `.json` |
 | Note-backed mind maps | `mind_maps.list/get_tree` | `studio/mind-maps/*.json` |
 | Chat | `chat.get_history` | `chat/history.json` + `history.md` |
 | Integrity | — | `manifest.json` (sha256, md5, size per file) |

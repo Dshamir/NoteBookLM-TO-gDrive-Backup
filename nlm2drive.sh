@@ -55,8 +55,12 @@ load_env() {
 ensure_engine() {
   if dk version --format '{{.Server.Version}}' >/dev/null 2>&1; then return; fi
   say "Starting Docker Desktop…"
-  # explorer.exe launches it detached from this shell (child processes of a closing shell can be killed).
-  explorer.exe "$DOCKER_DESKTOP_EXE" >/dev/null 2>&1 || run_powershell -Command "Start-Process '$DOCKER_DESKTOP_EXE'" >/dev/null 2>&1 || true
+  # Launch via WMI (Win32_Process.Create) so Docker Desktop lives outside the caller's process tree / job object
+  # and is never terminated when the launching shell or agent task exits.
+  local win_exe
+  win_exe="$(winpath "$DOCKER_DESKTOP_EXE")"
+  run_powershell -Command "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '\"$win_exe\"' } | Out-Null" >/dev/null 2>&1 \
+    || explorer.exe "$win_exe" >/dev/null 2>&1 || true
   for _ in $(seq 1 60); do
     sleep 5
     if dk version --format '{{.Server.Version}}' >/dev/null 2>&1; then say "Docker engine is up."; return; fi
